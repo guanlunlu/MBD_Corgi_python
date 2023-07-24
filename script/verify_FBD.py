@@ -212,8 +212,9 @@ class ExperimentData:
         self.trimmed_vicon = []
         self.trimmed_sbrio = []
         self.trimmed_imu = []
-        # [t, stamp, ]
-        self.trimmed_fulldata = []
+        # [t, s_data, o_data, v_data]
+        # [t, ModA, ModB, ModC, ModD, Imu, ForcePlate, PointState]
+        self.aligned_full_data = []
         pass
 
     def importViconData(self):
@@ -251,9 +252,9 @@ class ExperimentData:
                             PointState(self.viconPointPack(row)))
 
                         if row[self.vidx_trigger] != "" and not triggered:
-                            self.vicon_trigger_frame = row[0]
+                            self.vicon_trigger_frame = int(row[0])
                             triggered = True
-            print("\n")
+            # print("\n")
             print("Vicon Data Read From: ", vicon_filepath)
             print("Trimmed Size: ", len(self.force_plate_list))
 
@@ -398,17 +399,60 @@ class ExperimentData:
                     [w_x[i], w_y[i], w_z[i]]), np.array([att_x[i], att_y[i], att_z[i], att_w[i]]))
 
                 self.imu_data_list.append([t_, imu_])
-        # print(self.imu_data_list)
 
     def alignData(self):
         self.trimmed_sbrio = self.module_data_list[self.sbrio_trigger_idx:][:]
         self.trimmed_imu = self.imu_data_list[self.imu_trigger_idx:][:]
         self.trimmed_vicon = self.vicon_data_list[self.vicon_trigger_idx:][:]
-        print(self.trimmed_vicon[0])
-        print(self.trimmed_imu[0])
-        print(self.trimmed_sbrio[0])
-        # print(self.trimmed_vicon)
-        pass
+        # print("vt = ", self.vicon_trigger_idx)
+
+        sbrio_t0 = self.trimmed_sbrio[0][0]
+        imu_t0 = self.trimmed_imu[0][0]
+        vicon_t0 = self.trimmed_vicon[0][0]
+        print("--")
+        print("vicon tspan: ", self.trimmed_vicon[0][0], self.trimmed_vicon[-1][0])
+        print("vicon triggered data length: ", len(self.trimmed_vicon))
+        print("--")
+        print("sbrio tspan: ", self.trimmed_sbrio[0][0], self.trimmed_sbrio[-1][0])
+        print("sbrio triggered data length: ", len(self.trimmed_sbrio))
+        print("--")
+        print("imu tspan: ", self.trimmed_imu[0][0], self.trimmed_imu[-1][0])
+        print("imu triggered data length: ", len(self.trimmed_imu))
+        print("--")
+
+        # Align Vicon and Sbrio
+        v_idx = 0
+        o_idx = 0
+        for i in range(len(self.trimmed_sbrio)):
+            s_data = self.trimmed_sbrio[i][1:]
+
+            if v_idx+1 < len(self.trimmed_vicon):
+                t_sb = round(self.trimmed_sbrio[i][0] - sbrio_t0, 4)
+                t_nvi = round(self.trimmed_vicon[v_idx+1][0] - vicon_t0, 4)
+
+                if t_sb < t_nvi:
+                    v_data = self.trimmed_vicon[v_idx][1:]
+                else:
+                    v_idx += 1
+                    v_data = self.trimmed_vicon[v_idx][1:]
+            else:
+                break
+
+            if o_idx+1 < len(self.trimmed_imu):
+                t_sb = round(self.trimmed_sbrio[i][0] - sbrio_t0, 4)
+                t_no = round(self.trimmed_imu[o_idx+1][0] - imu_t0, 4)
+                if t_sb < t_no:
+                    o_data = self.trimmed_imu[o_idx][1]
+                else:
+                    o_idx += 1
+                    o_data = self.trimmed_imu[o_idx][1]
+            else:
+                break
+
+            self.aligned_full_data.append([t_sb, s_data, o_data, v_data])
+        print("Aligned Data tspan: ", self.aligned_full_data[0][0], self.aligned_full_data[-1][0])
+        print("Aligned Data length: ", len(self.aligned_full_data))
+        
 
 
 if __name__ == '__main__':
