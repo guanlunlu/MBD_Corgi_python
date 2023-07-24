@@ -123,8 +123,7 @@ class SimplifiedModel:
         self.tau = self.data.rpy_trq_phi
 
         # set initial condition from data
-        init_tb = lt.getThetaBeta(np.reshape(
-            self.data.rpy_pos_phi[0, :], (2, 1)))
+        init_tb = lt.getThetaBeta(np.reshape(self.data.rpy_pos_phi[0, :], (2, 1)))
         init_Rm = lt.getRm(init_tb[0, 0])
         self.init_condition = [init_Rm, 0, init_tb[1, 0], 0]
 
