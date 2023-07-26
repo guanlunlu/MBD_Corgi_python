@@ -203,9 +203,13 @@ class LegModel:
         self.OG = rot_beta * self.OG_ref
 
         self.JacobianOG = self.OG.jacobian(self.vec_phi)
-        J_OG = smp.lambdify(self.vec_phi, self.JacobianOG)
-        with open('./serialized_object/J_OG.pkl', 'wb') as d:
+        J_OG = smp.lambdify(self.vec_phi, self.JacobianOG, "numpy")
+        with open('./serialized_object/J_OG_NP.pkl', 'wb') as d:
             dill.dump(J_OG, d)
+
+        vec_OG = smp.lambdify(self.vec_phi, self.OG, "numpy")
+        with open('./serialized_object/vec_OG_NP.pkl', 'wb') as d:
+            dill.dump(vec_OG, d)
 
 
 if __name__ == '__main__':

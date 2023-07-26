@@ -17,6 +17,9 @@ orin_filepath = "../exp_data/20230718/1/orin.csv"
 with open('./serialized_object/J_OG.pkl', 'rb') as d:
     get_J_OG = dill.load(d)
 
+with open('./serialized_object/vec_OG_NP.pkl', 'rb') as d:
+    vec_OG = dill.load(d)
+
 
 class PointState:
     def __init__(self, pointList):
@@ -393,6 +396,36 @@ class ExperimentData:
         print("Aligned Data length: ", len(self.aligned_full_data))
 
 
+def iterFtip(aligned_data, idx):
+    for i in range(len(aligned_data)):
+        # print(i)
+        Mods = aligned_data[i][1]
+        mod = Mods[idx]
+        # print("getFtip")
+        mod.getFtip()
+        # print("got")
+    #     progress.update(1)
+
+
+def getJacobianOG(phiRL):
+    # phiRL = np.array([[phiR], [phiL]])
+    d_phi = 0.01
+    phi_R_p = phiR + d_phi
+    phi_R_n = phiR - d_phi
+    phi_L_p = phiR + d_phi
+    phi_L_n = phiR - d_phi
+
+    d_Gx_R = vec_OG(phi_R_p, phi_L_p) - vec_OG(phi_R_n, phi_L_n)
+    d_phi_R = phi_R_p - phi_R_n
+    p_Gx_phiR = d_Gx_R/d_phi_R
+
+    d_Gx_L = vec_OG(phi_R_p, phi_L_p) - vec_OG(phi_R_n, phi_L_n)
+    d_phi_R = phi_R_p - phi_R_n
+    p_Gx_phiR = d_Gx_R/d_phi_R
+
+    pass
+
+
 if __name__ == '__main__':
     expdata = ExperimentData(sbrio_filepath, vicon_filepath, orin_filepath)
     expdata.importViconData()
@@ -400,8 +433,9 @@ if __name__ == '__main__':
     expdata.importImuData()
     expdata.alignData()
 
-    progress = tqdm(total=len(expdata.aligned_full_data))
+    # progress = tqdm(total=len(expdata.aligned_full_data))
 
+    """
     for data in expdata.aligned_full_data:
         # print(len(data))
         # print(data)
@@ -417,13 +451,22 @@ if __name__ == '__main__':
         for i in range(4):
             threads.append(threading.Thread(target=Mods[i].getFtip))
             threads[i].start()
-            pass
 
         for i in range(4):
             threads[i].join()
         # print("Elapsed: ", time.time() - t)
 
         progress.update(1)
-        # t, Mods, Imu, ForcePlate, PointState = data
-        # ModA, ModB, ModC, ModD, Imu, ForcePlate, PointState = data
-        # print(t)
+    """
+
+    t = time.time()
+    threads = []
+    for i in range(4):
+        threads.append(threading.Thread(target=iterFtip,
+                       args=(expdata.aligned_full_data, i)))
+        threads[i].start()
+
+    for i in range(4):
+        threads[i].join()
+
+    print("Elapsed: ", time.time() - t)
