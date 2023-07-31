@@ -94,9 +94,14 @@ class ModuleState:
 
     def getFtip(self):
         t = time.time()
-        self.J_OG = get_J_OG(self.Motor_R.rpy_pos, self.Motor_L.rpy_pos)
-        elapsed = time.time() - t
+        # self.J_OG = get_J_OG(self.Motor_R.rpy_pos, self.Motor_L.rpy_pos)
+
+        self.J_OG = getJacobianOG_NumDiff(
+            self.Motor_R.rpy_pos, self.Motor_L.rpy_pos)
+
+        # elapsed = time.time() - t
         # print("elapsed time: ", elapsed)
+
         self.F_tip = np.linalg.inv(
             self.J_OG.T) @ np.array([[self.Motor_R.rpy_torq], [self.Motor_L.rpy_torq]])
 
@@ -152,7 +157,7 @@ class ExperimentData:
         self.trimmed_sbrio = []
         self.trimmed_imu = []
         # [t, s_data, o_data, v_data]
-        # [t, ModA, ModB, ModC, ModD, Imu, ForcePlate, PointState]
+        # [t, [ModA, ModB, ModC, ModD], Imu, ForcePlate, PointState]
         self.aligned_full_data = []
         pass
 
@@ -398,32 +403,32 @@ class ExperimentData:
 
 def iterFtip(aligned_data, idx):
     for i in range(len(aligned_data)):
-        # print(i)
         Mods = aligned_data[i][1]
         mod = Mods[idx]
-        # print("getFtip")
         mod.getFtip()
-        # print("got")
-    #     progress.update(1)
 
 
-def getJacobianOG(phiRL):
+def getJacobianOG_NumDiff(phi_R, phi_L):
+    # Obtain Jacobian of Point G by Numerical differentiation
     # phiRL = np.array([[phiR], [phiL]])
+    # phi_R = phiRL[0, 0]
+    # phi_L = phiRL[1, 0]
     d_phi = 0.01
-    phi_R_p = phiR + d_phi
-    phi_R_n = phiR - d_phi
-    phi_L_p = phiR + d_phi
-    phi_L_n = phiR - d_phi
+    phi_R_p = phi_R + d_phi
+    phi_R_n = phi_R - d_phi
+    phi_L_p = phi_L + d_phi
+    phi_L_n = phi_L - d_phi
 
-    d_Gx_R = vec_OG(phi_R_p, phi_L_p) - vec_OG(phi_R_n, phi_L_n)
+    d_Gx_R = vec_OG(phi_R_p, phi_L) - vec_OG(phi_R_n, phi_L)
     d_phi_R = phi_R_p - phi_R_n
-    p_Gx_phiR = d_Gx_R/d_phi_R
+    p_G_phiR = d_Gx_R/d_phi_R
 
-    d_Gx_L = vec_OG(phi_R_p, phi_L_p) - vec_OG(phi_R_n, phi_L_n)
-    d_phi_R = phi_R_p - phi_R_n
-    p_Gx_phiR = d_Gx_R/d_phi_R
+    d_Gx_L = vec_OG(phi_R, phi_L_p) - vec_OG(phi_R, phi_L_n)
+    d_phi_L = phi_L_p - phi_L_n
+    p_G_phiL = d_Gx_L/d_phi_L
 
-    pass
+    J = np.hstack([p_G_phiR, p_G_phiL])
+    return J
 
 
 if __name__ == '__main__':
