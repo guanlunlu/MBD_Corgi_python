@@ -1,5 +1,9 @@
 import numpy as np
 from scipy.spatial.transform import Rotation as R
+import dill
+
+with open('./serialized_object/vec_OG_NP.pkl', 'rb') as d:
+    vec_OG = dill.load(d)
 
 
 class RobotState:
@@ -35,6 +39,7 @@ class Corgi:
         self.d_l = 577.5 * 0.001
         self.d_w = 329.5 * 0.001
         self.d_h = 144 * 0.001
+        self.d_shaft = 0.444
         self.I_zz = 1/12 * self.m * (self.d_l**2 + self.d_w**2)
         self.I_xx = 1/12 * self.m * (self.d_h**2 + self.d_w**2)
         self.I_yy = 1/12 * self.m * (self.d_h**2 + self.d_l**2)
@@ -42,10 +47,15 @@ class Corgi:
                            [0, self.I_yy, 0],
                            [0, 0, self.I_zz]])
 
-    def updateState(self, dt, u1, r1, u2, r2, u3, r3, u4, r4):
+    def updateState(self, dt, u1r1, u2r2, u3r3, u4r4):
         # u1, u2, u3, u4 -> Ext. Force Represent in Base frame [Mod A, Mod B, Mod C, Mod D]
         # u1 = [u1_x, u1_y, 0]
         # r1, r2, r3, r4 -> lever of force represent in Base frame (From Point Force App. to C.O.M.)
+        u1, r1 = u1r1
+        u2, r2 = u2r2
+        u3, r3 = u3r3
+        u4, r4 = u4r4
+
         U = u1 + u2 + u3 + u4
         U_x = U[0, 0]
         U_z = U[1, 0]
@@ -90,6 +100,33 @@ class Corgi:
         H_k = H_k_1 + 1/2 @ dt @ H_prime_k_1 @ w_k
 
         self.state = RobotState(X_k, d_X_k, w_k, H_k)
+
+    def forceLeverage(self, mod_idx, Force, phi_RL):
+        # mod_idx: mod_A --> 0, mod_B --> 1, mod_C --> 2, mod_D --> 3
+        # Force = [Fx; Fy]
+        Fz = Force[1, 0]
+        if mod_idx == 0 or mod_idx == 3:
+            Fx = -Force[0, 0]
+        else:
+            Fx = Force[0, 0]
+
+        # Point G in Module Frame
+        m_G = vec_OG(phi_RL[0, 0], phi_RL[1, 0])
+
+        # Translation between Base Frame and module frame
+        if mod_idx == 0:
+            vec_BO = np.array([[self.d_shaft/2], [self.d_w/2], [0]])
+        elif mod_idx == 1:
+            vec_BO = np.array([[self.d_shaft/2], [-self.d_w/2], [0]])
+        elif mod_idx == 2:
+            vec_BO = np.array([[-self.d_shaft/2], [-self.d_w/2], [0]])
+        elif mod_idx == 3:
+            vec_BO = np.array([[-self.d_shaft/2], [self.d_w/2], [0]])
+
+        vec_BG = vec_BO + vec_OG
+        F = np.array([[Fx], [0], [Fz]])
+
+        return [F, vec_BG]
 
     def quatMutiply(self, qa, qb):
         qa_x = qa[0]

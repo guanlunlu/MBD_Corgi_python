@@ -269,27 +269,27 @@ class ExperimentData:
                             self.sbrio_trigger_idx = cnt
                     module_data = []
                     motor_AR = MotorState(float(row[D.sidx_AR_cmd_pos]), float(row[D.sidx_AR_cmd_torq]), float(
-                        D.sidx_AR_cmd_kp), float(D.sidx_AR_cmd_kd), float(D.sidx_AR_rpy_pos), float(D.sidx_AR_rpy_torq), float(D.sidx_pb_AR_V), float(D.sidx_pb_AR_I))
+                        row[D.sidx_AR_cmd_kp]), float(row[D.sidx_AR_cmd_kd]), float(row[D.sidx_AR_rpy_pos]), float(row[D.sidx_AR_rpy_torq]), float(row[D.sidx_pb_AR_V]), float(row[D.sidx_pb_AR_I]))
                     motor_AL = MotorState(float(row[D.sidx_AL_cmd_pos]), float(row[D.sidx_AL_cmd_torq]), float(
-                        D.sidx_AL_cmd_kp), float(D.sidx_AL_cmd_kd), float(D.sidx_AL_rpy_pos), float(D.sidx_AL_rpy_torq), float(D.sidx_pb_AL_V), float(D.sidx_pb_AL_I))
+                        row[D.sidx_AL_cmd_kp]), float(row[D.sidx_AL_cmd_kd]), float(row[D.sidx_AL_rpy_pos]), float(row[D.sidx_AL_rpy_torq]), float(row[D.sidx_pb_AL_V]), float(row[D.sidx_pb_AL_I]))
                     mod_A = ModuleState(motor_AR, motor_AL)
 
                     motor_BR = MotorState(float(row[D.sidx_BR_cmd_pos]), float(row[D.sidx_BR_cmd_torq]), float(
-                        D.sidx_BR_cmd_kp), float(D.sidx_BR_cmd_kd), float(D.sidx_BR_rpy_pos), float(D.sidx_BR_rpy_torq), float(D.sidx_pb_BR_V), float(D.sidx_pb_BR_I))
+                        row[D.sidx_BR_cmd_kp]), float(row[D.sidx_BR_cmd_kd]), float(row[D.sidx_BR_rpy_pos]), float(row[D.sidx_BR_rpy_torq]), float(row[D.sidx_pb_BR_V]), float(row[D.sidx_pb_BR_I]))
                     motor_BL = MotorState(float(row[D.sidx_BL_cmd_pos]), float(row[D.sidx_BL_cmd_torq]), float(
-                        D.sidx_BL_cmd_kp), float(D.sidx_BL_cmd_kd), float(D.sidx_BL_rpy_pos), float(D.sidx_BL_rpy_torq), float(D.sidx_pb_BL_V), float(D.sidx_pb_BL_I))
+                        row[D.sidx_BL_cmd_kp]), float(row[D.sidx_BL_cmd_kd]), float(row[D.sidx_BL_rpy_pos]), float(row[D.sidx_BL_rpy_torq]), float(row[D.sidx_pb_BL_V]), float(row[D.sidx_pb_BL_I]))
                     mod_B = ModuleState(motor_BR, motor_BL)
 
                     motor_CR = MotorState(float(row[D.sidx_CR_cmd_pos]), float(row[D.sidx_CR_cmd_torq]), float(
-                        D.sidx_CR_cmd_kp), float(D.sidx_CR_cmd_kd), float(D.sidx_CR_rpy_pos), float(D.sidx_CR_rpy_torq), float(D.sidx_pb_CR_V), float(D.sidx_pb_CR_I))
+                        row[D.sidx_CR_cmd_kp]), float(row[D.sidx_CR_cmd_kd]), float(row[D.sidx_CR_rpy_pos]), float(row[D.sidx_CR_rpy_torq]), float(row[D.sidx_pb_CR_V]), float(row[D.sidx_pb_CR_I]))
                     motor_CL = MotorState(float(row[D.sidx_CL_cmd_pos]), float(row[D.sidx_CL_cmd_torq]), float(
-                        D.sidx_CL_cmd_kp), float(D.sidx_CL_cmd_kd), float(D.sidx_CL_rpy_pos), float(D.sidx_CL_rpy_torq), float(D.sidx_pb_CL_V), float(D.sidx_pb_CL_I))
+                        row[D.sidx_CL_cmd_kp]), float(row[D.sidx_CL_cmd_kd]), float(row[D.sidx_CL_rpy_pos]), float(row[D.sidx_CL_rpy_torq]), float(row[D.sidx_pb_CL_V]), float(row[D.sidx_pb_CL_I]))
                     mod_C = ModuleState(motor_CR, motor_CL)
 
                     motor_DR = MotorState(float(row[D.sidx_DR_cmd_pos]), float(row[D.sidx_DR_cmd_torq]), float(
-                        D.sidx_DR_cmd_kp), float(D.sidx_DR_cmd_kd), float(D.sidx_DR_rpy_pos), float(D.sidx_DR_rpy_torq), float(D.sidx_pb_DR_V), float(D.sidx_pb_DR_I))
+                        row[D.sidx_DR_cmd_kp]), float(row[D.sidx_DR_cmd_kd]), float(row[D.sidx_DR_rpy_pos]), float(row[D.sidx_DR_rpy_torq]), float(row[D.sidx_pb_DR_V]), float(row[D.sidx_pb_DR_I]))
                     motor_DL = MotorState(float(row[D.sidx_DL_cmd_pos]), float(row[D.sidx_DL_cmd_torq]), float(
-                        D.sidx_DL_cmd_kp), float(D.sidx_DL_cmd_kd), float(D.sidx_DL_rpy_pos), float(D.sidx_DL_rpy_torq), float(D.sidx_pb_DL_V), float(D.sidx_pb_DL_I))
+                        row[D.sidx_DL_cmd_kp]), float(row[D.sidx_DL_cmd_kd]), float(row[D.sidx_DL_rpy_pos]), float(row[D.sidx_DL_rpy_torq]), float(row[D.sidx_pb_DL_V]), float(row[D.sidx_pb_DL_I]))
                     mod_D = ModuleState(motor_DR, motor_DL)
 
                     module_data.append(int(row[0])*0.001)
@@ -432,11 +432,14 @@ def getJacobianOG_NumDiff(phi_R, phi_L):
 
 
 if __name__ == '__main__':
-    expdata = ExperimentData(sbrio_filepath, vicon_filepath, orin_filepath)
-    expdata.importViconData()
-    expdata.importSbrioData()
-    expdata.importImuData()
-    expdata.alignData()
+    # expdata = ExperimentData(sbrio_filepath, vicon_filepath, orin_filepath)
+    # expdata.importViconData()
+    # expdata.importSbrioData()
+    # expdata.importImuData()
+    # expdata.alignData()
+
+    print(getJacobianOG_NumDiff(1, 0.5))
+    print(get_J_OG(1, 0.5))
 
     # progress = tqdm(total=len(expdata.aligned_full_data))
 
@@ -464,14 +467,14 @@ if __name__ == '__main__':
         progress.update(1)
     """
 
-    t = time.time()
-    threads = []
-    for i in range(4):
-        threads.append(threading.Thread(target=iterFtip,
-                       args=(expdata.aligned_full_data, i)))
-        threads[i].start()
+    # t = time.time()
+    # threads = []
+    # for i in range(4):
+    #     threads.append(threading.Thread(target=iterFtip,
+    #                    args=(expdata.aligned_full_data, i)))
+    #     threads[i].start()
 
-    for i in range(4):
-        threads[i].join()
+    # for i in range(4):
+    #     threads[i].join()
 
-    print("Elapsed: ", time.time() - t)
+    # print("Elapsed: ", time.time() - t)
