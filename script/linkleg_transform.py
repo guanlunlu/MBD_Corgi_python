@@ -13,7 +13,9 @@ def getThetaBeta(phiRL):
 
 
 def getPhiRL(tb):
-    return np.mat([[1, 1], [-1, 1]]) * np.mat(tb) - np.mat([[1], [-1]]) * np.deg2rad(17)
+    print(tb)
+    return np.array([[1, 1], [-1, 1]]) @ tb - np.array([[1], [-1]]) * np.deg2rad(17)
+    # return np.mat([[1, 1], [-1, 1]]) * np.mat(tb) - np.mat([[1], [-1]]) * np.deg2rad(17)
 
 
 def getFrmTb(T_RL, theta):

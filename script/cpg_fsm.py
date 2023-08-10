@@ -2,6 +2,8 @@ import numpy as np
 import linkleg_transform as lt
 import dill
 import time
+import matplotlib.pyplot as plt
+from mpl_toolkits.mplot3d import Axes3D
 
 
 MODE_STOP = 0
@@ -9,6 +11,8 @@ MODE_STANCE = 1
 MODE_WALK = 2
 MODE_TROT = 3
 
+color_modlist = ["cornflowerblue", "forestgreen", "darkorange", "plum"]
+color_body = ["darkred", "indianred"]
 
 with open('./serialized_object/vec_OG_NP.pkl', 'rb') as d:
     vec_OG = dill.load(d)
@@ -65,7 +69,7 @@ class LinkLeg:
         self.freq = freq
         self.state_tb = tb
         self.state_phi = lt.getPhiRL(tb)
-        self.vec_OG = vec_OG(self.state_phi[0], self.state_phi[1])
+        self.vec_OG = vec_OG(self.state_phi[0, 0], self.state_phi[1, 0])
         self.len_OG = np.linalg.norm(self.vec_OG)
 
         # quadratic Trajectory coeff
@@ -86,12 +90,13 @@ class LinkLeg:
         # get theta_k from inverse kinematics approx...
         theta_k = self.solveLegIK(leglen_k, self.state_tb)
 
-        dbeta_k = np.arccos((vec_OG_k.T@self.vec_OG) / (self.len_OG*leglen_k))
+        dbeta_k = np.arccos((vec_OG_k.T@self.vec_OG) /
+                            (self.len_OG*leglen_k))[0, 0]
 
         # Update
         self.len_OG = leglen_k
         self.vec_OG = vec_OG_k
-        beta_k = self.state_tb[1] + dbeta_k
+        beta_k = self.state_tb[1, 0] + dbeta_k
         self.state_tb = np.array([[theta_k], [beta_k]])
         self.state_phi = lt.getPhiRL(self.state_tb)
 
@@ -112,51 +117,98 @@ class LinkLeg:
         c0 = quad_coeff[2, 0]
         self.swingTrajectory = [c2, c1, c0]
 
-    def moveSwing(self, t_flight):
+    def moveSwing(self, sp):
+        # move leg to next swingpoint
+        l_des = np.linalg.norm(sp)
+        theta = self.solveLegIK(l_des, self.state_tb)
 
-        pass
+        u_sp = sp / l_des
+        beta = np.arccos(u_sp.T @ np.array([[0], [1]]))[0, 0]
+        if sp[0, 0] <= 0:
+            beta_sign = 1
+        else:
+            beta_sign = -1
+        beta *= beta_sign
+
+        print("swing ", theta, beta)
+        self.updateState(np.array([[theta], [beta]]))
+        self.vec_OG = sp
+        self.len_OG = l_des
 
     def solveLegIK(self, desired_length, current_tb):
         # Solve theta correspond to desired length
-        phiRL = lt.getPhiRL(current_tb)
-        v_OG = vec_OG(phiRL[0, 0], phiRL[1, 0])
-        iter_length = np.sqrt(v_OG.T @ v_OG)[0, 0]
-        theta = current_tb[0, 0]
-
-        error = desired_length - iter_length
-
-        tolerance = 0.0005
-        p_gain = 10
-
-        while error > tolerance:
-            theta = theta + (p_gain * error)
-
-            phiRL = lt.getPhiRL(np.array([[theta], [0]]))
+        if desired_length > 0.3428:
+            return "error"
+        else:
+            phiRL = lt.getPhiRL(current_tb)
             v_OG = vec_OG(phiRL[0, 0], phiRL[1, 0])
             iter_length = np.sqrt(v_OG.T @ v_OG)[0, 0]
+            theta = current_tb[0, 0]
+
             error = desired_length - iter_length
 
-        # print("iter_theta = ", theta)
-        # print("iter_len = ", iter_len)
-        return theta
+            tolerance = 0.001
+            p_gain = 10
+
+            while error > tolerance:
+                theta = theta + (p_gain * error)
+                phiRL = lt.getPhiRL(np.array([[theta], [0]]))
+                v_OG = vec_OG(phiRL[0, 0], phiRL[1, 0])
+                iter_length = np.sqrt(v_OG.T @ v_OG)[0, 0]
+                error = desired_length - iter_length
+            return theta
 
 
 class Corgi:
     def __init__(self, loop_freq, cpg):
         self.cpg = cpg
+        self.mode = MODE_WALK
+        self.step_length = 0.1
+        self.step_height = 0.1
+        # swing_time = step_length/heading_velocity
+        self.swing_time = 1
+        self.stance_height = 0.2
+
         # Robot initial state (in Theta-Beta Representation)
         self.Position = np.array([[0], [0], [0]])
         self.Orientation = np.array([0, 0, 0, 1])  # xyzw
 
+        # Physics Prop. (SI unit)
+        self.g = np.array([[0], [0], [-9.80665]])
+        self.m = 26.662009  # kg
+        self.d_l = 577.5 * 0.001
+        self.d_w = 329.5 * 0.001
+        self.d_h = 144 * 0.001
+        self.d_shaft = 0.444
+        self.I_zz = 1/12 * self.m * (self.d_l**2 + self.d_w**2)
+        self.I_xx = 1/12 * self.m * (self.d_h**2 + self.d_w**2)
+        self.I_yy = 1/12 * self.m * (self.d_h**2 + self.d_l**2)
+        self.I = np.array([[self.I_xx, 0, 0],
+                           [0, self.I_yy, 0],
+                           [0, 0, self.I_zz]])
+
         # Module initial state (in Theta-Beta Representation)
-        self.leg_A = LinkLeg(loop_freq, np.array([[0], [0]]))
-        self.leg_B = LinkLeg(loop_freq, np.array([[0], [0]]))
-        self.leg_C = LinkLeg(loop_freq, np.array([[0], [0]]))
-        self.leg_D = LinkLeg(loop_freq, np.array([[0], [0]]))
+        self.leg_A = LinkLeg(loop_freq, np.array([[np.deg2rad(17)], [0]]))
+        self.leg_B = LinkLeg(loop_freq, np.array([[np.deg2rad(17)], [0]]))
+        self.leg_C = LinkLeg(loop_freq, np.array([[np.deg2rad(17)], [0]]))
+        self.leg_D = LinkLeg(loop_freq, np.array([[np.deg2rad(17)], [0]]))
+        self.vec_C_AO = np.array([[self.d_shaft/2], [self.d_w/2], [0]])
+        self.vec_C_BO = np.array([[self.d_shaft/2], [-self.d_w/2], [0]])
+        self.vec_C_CO = np.array([[-self.d_shaft/2], [self.d_w/2], [0]])
+        self.vec_C_DO = np.array([[-self.d_shaft/2], [-self.d_w/2], [0]])
+
         self.legs = [self.leg_A, self.leg_B, self.leg_C, self.leg_D]
+        self.legs_offset = [self.vec_C_AO,
+                            self.vec_C_BO,
+                            self.vec_C_CO,
+                            self.vec_C_DO]
+
         self.frequency = loop_freq
         self.dt = 1/loop_freq
 
+        self.loop_cnt = 0
+        self.swing_cff_x = 0
+        self.swing_cff_y = 0
         self.trajectory = []
 
     def standUp(self, stance_height, vel):
@@ -168,15 +220,109 @@ class Corgi:
                 theta_ = leg.solveLegIK(leg.len_OG + vel*self.dt, leg.state_tb)
                 leg.updateState(np.array([[theta_], [0]]))
                 leg.len_OG += vel*self.dt
-                leg.vec_OG[1, 0] += vel*self.dt
+                leg.vec_OG[1, 0] -= vel*self.dt
 
             self.Position = self.Position + np.array([[0], [0], [vel*self.dt]])
             self.recordTrajectory()
         print("Time Elapsed = ", time.time() - t)
-        print(self.trajectory)
 
     def move(self):
-        pass
+        liftoff_foot = -1
+        avg_vel = 0
+        t_sw = 0
+        sw_ = []
+        fig = plt.figure()
+        ax = fig.add_subplot(111, projection='3d')
+
+        while self.loop_cnt < 10 * self.frequency:
+            self.cpg.update(mode, self.swing_time)
+
+            # print("COM_pose:", self.Position.T)
+            self.Position += np.array([[avg_vel*self.dt], [0], [0]])
+            ax.scatter(self.Position[0, 0],
+                       self.Position[1, 0],
+                       self.Position[2, 0], color=color_body[0])
+
+            for i in range(4):
+                if self.cpg.contact[i] == False:
+                    # Stance Phase
+                    self.legs[i].moveStance(avg_vel)
+                    pass
+                else:
+                    # Flight Phase
+                    if i != liftoff_foot:
+                        t_sw = 0
+                        # Plan lift off trajectory
+                        print("Lift ", i)
+                        sw_ = self.generateSwingTrajectory(i)
+                        avg_vel = self.getAverageVelocity(sw_[1], i)[0, 0]
+                        liftoff_foot = i
+                        print("--------------------------")
+                    sp = self.getSwingPoint(t_sw, sw_[0], sw_[2], sw_[3])
+                    ax.scatter(sp[0, 0], sp[1, 0], sp[2, 0], color=color_modlist[i])
+
+                    bf_sp = sp - self.Position - self.legs_offset[i]
+                    if i == 0 or i == 3:
+                        lf_sp = np.array([[-1, 0, 0], [0, 0, 1]]) @ bf_sp
+                    else:
+                        lf_sp = np.array([[1, 0, 0], [0, 0, 1]]) @ bf_sp
+                    # self.legs[i].moveSwing(lf_sp)
+
+                p_hip = self.getHipPosition(i)
+                ax.scatter(p_hip[0,0], p_hip[1,0], p_hip[2,0], color=color_body[1])
+            t_sw += self.dt
+            self.loop_cnt += 1
+
+        plt.show()
+
+    def getHipPosition(self, idx):
+        return self.Position + self.legs_offset[idx]
+
+    def generateSwingTrajectory(self, leg_idx):
+        leg = self.legs[leg_idx]
+
+        if leg_idx == 0 or leg_idx == 3:
+            v_OG = np.array([[-1, 0], [0, 0], [0, 1]]) @ leg.vec_OG
+        else:
+            v_OG = np.array([[1, 0], [0, 0], [0, 1]]) @ leg.vec_OG
+
+        leg_cp1 = self.Position + self.legs_offset[leg_idx] + v_OG
+        leg_cp2 = leg_cp1 + np.array([[self.step_length], [0], [0]])
+
+        # quadratic trajectory y(t) = cff*t(t-T)
+        cff_x = self.step_length/self.swing_time
+        cff_y = -2*self.step_height/(self.swing_time**2)
+        return [leg_cp1, leg_cp2, cff_x, cff_y]
+
+    def getSwingPoint(self, t, cp1, cff_x, cff_y):
+        # Return Foothold point of swing foot in world frame
+        dx = cff_x * t
+        dz = cff_y * t * (t - self.swing_time)
+        return cp1 + np.array([[dx], [0], [dz]])
+
+    def getAverageVelocity(self, cp2, lift_idx):
+        cps1 = np.array([[0], [0], [0]])
+        cps2 = np.array([[0], [0], [0]])
+
+        for i in range(4):
+            if i == 0 or i == 3:
+                v_OG = np.array([[-1, 0], [0, 0], [0, 1]]
+                                ) @ self.legs[i].vec_OG
+            else:
+                v_OG = np.array([[1, 0], [0, 0], [0, 1]]) @ self.legs[i].vec_OG
+
+            cp = self.Position + self.legs_offset[i] + v_OG
+            if i != lift_idx:
+                cps1 = cps1 + cp
+                cps2 = cps2 + cp
+            else:
+                cps1 = cps1 + cp
+                cps2 = cps2 + cp2
+
+        com1 = 1/4 * cps1
+        com2 = 1/4 * cps2
+        vel = (com2 - com1)/self.swing_time
+        return vel
 
     def recordTrajectory(self):
         leg_state = []
@@ -191,18 +337,19 @@ if __name__ == '__main__':
     print("CPG Started")
 
     loop_cnt = 0
-    loop_freq = 1000  # Hz
+    loop_freq = 30  # Hz
     FSM = FiniteStateMachine(loop_freq)
     CORGI = Corgi(loop_freq, FSM)
 
     mode = MODE_WALK
-    step_length = 0.1
+    step_length = 0.2
     velocity = 0.1
     # swing_time = step_length/heading_velocity
     swing_time = 1
     stance_height = 0.2
 
     CORGI.standUp(stance_height, 0.05)
+    CORGI.move()
 
     # while loop_cnt < 10*1000:
     #     FSM.update(mode, swing_time)
