@@ -3,6 +3,7 @@ import linkleg_transform as lt
 import dill
 import time
 import matplotlib.pyplot as plt
+import matplotlib.animation as animation
 from mpl_toolkits.mplot3d import Axes3D
 
 
@@ -166,10 +167,10 @@ class Corgi:
     def __init__(self, loop_freq, cpg):
         self.cpg = cpg
         self.mode = MODE_WALK
-        self.step_length = 0.25
+        self.step_length = 0.2
         self.step_height = 0.1
         # swing_time = step_length/heading_velocity
-        self.swing_time = 0.8
+        self.swing_time = 1
         self.stance_height = 0.2
 
         # Robot initial state (in Theta-Beta Representation)
@@ -209,16 +210,17 @@ class Corgi:
         self.frequency = loop_freq
         self.dt = 1/loop_freq
 
+        self.iter_t = 0
         self.loop_cnt = 0
         self.swing_cff_x = 0
         self.swing_cff_y = 0
         self.trajectory = []
 
-    def standUp(self, stance_height, vel):
+    def standUp(self, vel):
         print("Standing Up ...")
         tolerance = 0.01
         t = time.time()
-        while np.abs(stance_height - self.Position[2, 0]) > tolerance:
+        while np.abs(self.stance_height - self.Position[2, 0]) > tolerance:
             for leg in self.legs:
                 theta_ = leg.solveLegIK(leg.len_OG + vel*self.dt, leg.state_tb)
                 leg.updateState(np.array([[theta_], [0]]))
@@ -227,8 +229,10 @@ class Corgi:
 
             self.Position = self.Position + np.array([[0], [0], [vel*self.dt]])
             self.recordTrajectory()
+            self.iter_t += self.dt
+
         print("Time Elapsed = ", time.time() - t)
-        print(self.legs[0].vec_OG)
+        print("iter_t = ", self.iter_t)
 
     def move(self):
         liftoff_foot = -1
@@ -238,10 +242,9 @@ class Corgi:
         fig = plt.figure()
         ax = fig.add_subplot(111, projection='3d')
 
-        while self.loop_cnt < 10 * self.frequency:
-            self.cpg.update(mode, self.swing_time)
+        while self.loop_cnt < 40 * self.frequency:
+            self.cpg.update(self.mode, self.swing_time)
 
-            # print("COM_pose:", self.Position.T)
             self.Position += np.array([[avg_vel*self.dt], [0], [0]])
             ax.scatter(self.Position[0, 0],
                        self.Position[1, 0],
@@ -251,9 +254,9 @@ class Corgi:
                 if self.cpg.contact[i] == False:
                     # Stance Phase
                     self.legs[i].moveStance(avg_vel)
-                    if i == 0:
+                    """ if i == 0:
                         print("[stance] leg:", i, "state_tb:",
-                              np.rad2deg(self.legs[i].state_tb.T))
+                              np.rad2deg(self.legs[i].state_tb.T)) """
                 else:
                     # Flight Phase
                     if i != liftoff_foot:
@@ -263,7 +266,7 @@ class Corgi:
                         sw_ = self.generateSwingTrajectory(i)
                         avg_vel = self.getAverageVelocity(sw_[1], i)[0, 0]
                         liftoff_foot = i
-                        print("--------------------------")
+                        print("---------")
 
                     sp = self.getSwingPoint(t_sw, sw_[0], sw_[2], sw_[3])
 
@@ -277,7 +280,7 @@ class Corgi:
                         lf_sp = np.array([[1, 0, 0], [0, 0, 1]]) @ bf_sp
 
                     self.legs[i].moveSwing(lf_sp)
-                    if i == 0:
+                    """ if i == 0:
                         print("[swing] t_sw:", t_sw)
                         print("[swing] sp:", sp.T)
                         print("[swing] sw_:", sw_)
@@ -286,14 +289,17 @@ class Corgi:
                         print("lf_sp:", lf_sp.T)
                         print("swing_count, contact",
                               self.cpg.swing_counts, self.cpg.contact)
-                        print("===")
+                        print("===") """
 
-                # p_hip = self.getHipPosition(i)
-                # ax.scatter(p_hip[0, 0], p_hip[1, 0],
-                #            p_hip[2, 0], color=color_body[1])
+                """ p_hip = self.getHipPosition(i)
+                ax.scatter(p_hip[0, 0], p_hip[1, 0],
+                           p_hip[2, 0], color=color_body[1]) """
 
+            self.recordTrajectory()
+            self.iter_t += self.dt
             t_sw += self.dt
             self.loop_cnt += 1
+        # print(self.trajectory)
         plt.show()
 
     def getHipPosition(self, idx):
@@ -308,9 +314,10 @@ class Corgi:
             v_OG = np.array([[1, 0], [0, 0], [0, 1]]) @ leg.vec_OG
 
         leg_cp1 = self.Position + self.legs_offset[leg_idx] + v_OG
-        print("leg_cp1, self.Position.T, v_OG.T:",
-              leg_cp1.T, self.Position.T, v_OG.T)
         leg_cp2 = leg_cp1 + np.array([[self.step_length], [0], [0]])
+
+        """ print("leg_cp1, self.Position.T, v_OG.T:",
+              leg_cp1.T, self.Position.T, v_OG.T) """
 
         # quadratic trajectory y(t) = cff*t(t-T)
         cff_x = self.step_length/self.swing_time
@@ -348,46 +355,28 @@ class Corgi:
         return vel
 
     def recordTrajectory(self):
-        leg_state = []
+        leg_state = [self.iter_t, self.Position.reshape(
+            1, -1).ravel().tolist()]
         for leg in self.legs:
             leg_state.append(leg.state_tb.reshape(1, 2).ravel().tolist())
             leg_state.append(leg.state_phi.reshape(1, 2).tolist()[0])
         self.trajectory.append(leg_state)
         pass
 
+    # def updateAnimation(self):
+
+    def visualize(self):
+        fig = plt.figure()
+        ax = fig.add_subplot(projection="3d")
+
 
 if __name__ == '__main__':
     print("CPG Started")
 
     loop_cnt = 0
-    loop_freq = 10  # Hz
+    loop_freq = 1000  # Hz
     FSM = FiniteStateMachine(loop_freq)
     CORGI = Corgi(loop_freq, FSM)
 
-    mode = MODE_WALK
-    step_length = 0.2
-    velocity = 0.1
-    # swing_time = step_length/heading_velocity
-    swing_time = 0.5
-    stance_height = 0.2
-
-    CORGI.standUp(stance_height, 0.05)
+    CORGI.standUp(0.05)
     CORGI.move()
-
-    # while loop_cnt < 10*1000:
-    #     FSM.update(mode, swing_time)
-
-    #     # FSM.update(MODE_TROT, swing_time*1000)
-    #     print("Iter ", loop_cnt, ": ", FSM.swing_counts, FSM.contact)
-    #     print(CORGI.move())
-
-    #     for i in range(4):
-    #         if FSM.contact[i] == False:
-    #             # Stance
-    #             # CORGI.legs[i].moveStance(velocity)
-    #             pass
-    #         else:
-    #             # Lift Off
-    #             pass
-
-    #     loop_cnt += 1
