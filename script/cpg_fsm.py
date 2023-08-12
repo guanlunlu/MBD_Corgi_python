@@ -183,7 +183,8 @@ class Corgi:
         self.stance_height = 0.2
 
         # Robot initial state (in Theta-Beta Representation)
-        self.Position = np.array([[0], [0], [0.1]])
+        self.initial_position = np.array([[0], [0], [0.1]])
+        self.Position = self.initial_position
         self.Orientation = np.array([0, 0, 0, 1])  # xyzw
 
         # Physics Prop. (SI unit)
@@ -228,6 +229,13 @@ class Corgi:
         # Animation
         self.animate_fps = 30
         self.ax = None
+        self.vs_com = None
+        self.vs_hip_a = None
+        self.vs_hip_b = None
+        self.vs_hip_c = None
+        self.vs_hip_d = None
+        self.vs_fhs = []
+        
 
     def standUp(self, vel):
         print("Standing Up ...")
@@ -362,29 +370,26 @@ class Corgi:
 
     def updateAnimation(self, frame_cnt):
         idx = round(frame_cnt * (loop_freq/self.animate_fps))
-        if frame_cnt > 0:
-            self.ax.clear()
-
-        self.ax.set_xlabel('X')
-        self.ax.set_ylabel('Y')
-        self.ax.set_zlabel('Z')
-        self.ax.axes.set_xlim3d([-1, 2])
-        self.ax.axes.set_ylim3d([-1, 2])
-        self.ax.axes.set_zlim3d([0, 0.5])
 
         if idx <= len(self.trajectory):
             p_com = self.trajectory[idx][1]
             p_com_vec = np.array([[p_com[0]], [p_com[1]], [p_com[2]]])
+            self.vs_com.set_data(p_com[0], p_com[1])
+            self.vs_com.set_3d_properties(p_com[2])
+
             p_A_hip = self.getHipPosition(0, p_com_vec)
             p_B_hip = self.getHipPosition(1, p_com_vec)
             p_C_hip = self.getHipPosition(2, p_com_vec)
             p_D_hip = self.getHipPosition(3, p_com_vec)
             p_hip = [p_A_hip, p_B_hip, p_C_hip, p_D_hip] 
-            self.ax.scatter(p_com[0], p_com[1], p_com[2], color=color_body[0])
-            self.ax.scatter(p_A_hip[0], p_A_hip[1], p_A_hip[2], color=color_body[1])
-            self.ax.scatter(p_B_hip[0], p_B_hip[1], p_B_hip[2], color=color_body[1])
-            self.ax.scatter(p_C_hip[0], p_C_hip[1], p_C_hip[2], color=color_body[1])
-            self.ax.scatter(p_D_hip[0], p_D_hip[1], p_D_hip[2], color=color_body[1])
+            self.vs_hip_a.set_data(p_A_hip[0, 0], p_A_hip[1, 0])
+            self.vs_hip_a.set_3d_properties(p_A_hip[2, 0])
+            self.vs_hip_b.set_data(p_B_hip[0, 0], p_B_hip[1, 0])
+            self.vs_hip_b.set_3d_properties(p_B_hip[2, 0])
+            self.vs_hip_c.set_data(p_C_hip[0, 0], p_C_hip[1, 0])
+            self.vs_hip_c.set_3d_properties(p_C_hip[2, 0])
+            self.vs_hip_d.set_data(p_D_hip[0, 0], p_D_hip[1, 0])
+            self.vs_hip_d.set_3d_properties(p_D_hip[2, 0])
 
             for i in range(4):
                 midx = 2*i+3
@@ -395,25 +400,39 @@ class Corgi:
                 else:
                     v_OG = np.array([[1, 0], [0, 0], [0, 1]]) @ lf_OG
                 p_G = p_hip[i] + v_OG
-                self.ax.scatter(p_G[0,0], p_G[1,0], p_G[2,0], color=color_modlist[i])
-        pass
+                self.vs_fhs[i].set_data(p_G[0,0], p_G[1,0])
+                self.vs_fhs[i].set_3d_properties(p_G[2,0])
+
+        return self.vs_com, self.vs_hip_a, self.vs_hip_b, self.vs_hip_c, self.vs_hip_d
 
     def visualize(self):
         # FPS <= loop frequency
         frame_interval = round((1/self.animate_fps) * 1000)
         frame_count = round(self.trajectory[-1][0]*self.animate_fps)
-
         print("Frame interval count:", frame_interval, frame_count)
 
-        fig = plt.figure()
-        self.ax = fig.add_subplot(projection="3d")
-        
+        fig = plt.figure(figsize=(16,9), dpi=150)
+        self.ax = Axes3D(fig)
+        # fig.add_axes(self.ax)
+        # self.ax = fig.add_subplot(projection="3d")
+        self.ax.set_xlabel('X')
+        self.ax.set_ylabel('Y')
+        self.ax.set_zlabel('Z')
+        self.ax.axes.set_xlim3d([-1, 3])
+        self.ax.axes.set_ylim3d([-1, 1])
+        self.ax.axes.set_zlim3d([0, 0.5])
+
+        self.vs_com = self.ax.plot([], [], [], '.', color=color_body[1])[0]
+        self.vs_hip_a = self.ax.plot([], [], [], '.', color=color_body[0])[0]
+        self.vs_hip_b = self.ax.plot([], [], [], '.', color=color_body[0])[0]
+        self.vs_hip_c = self.ax.plot([], [], [], '.', color=color_body[0])[0]
+        self.vs_hip_d = self.ax.plot([], [], [], '.', color=color_body[0])[0]
+
+        for i in range(4):
+            self.vs_fhs.append(self.ax.plot([], [], [], '.', color=color_modlist[i])[0])
+
         ani = animation.FuncAnimation(fig, self.updateAnimation, frames=frame_count, interval=frame_interval, repeat=True)
         # ani.save("animation.mp4")
-        plt.xlim([-2, 4])
-        plt.ylim([-2, 4])
-
-        plt.autoscale(False)
         plt.show()
 
 if __name__ == '__main__':
