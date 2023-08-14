@@ -1,11 +1,13 @@
 import numpy as np
-import linkleg_transform as lt
 import dill
 import time
 import copy
 import matplotlib.pyplot as plt
 import matplotlib.animation as animation
 from mpl_toolkits.mplot3d import Axes3D
+
+import linkleg_transform as lt
+import LegKinematics as lk
 
 
 MODE_STOP = 0
@@ -28,12 +30,14 @@ class FiniteStateMachine:
         self.swing_counts = [0, 0, 0, 0]
         self.trigger_round = [1, 3, 2, 4]
         self.count = 0
+        self.mode = MODE_STOP
 
         self.timer_trigger_time = 0
         self.timer_count = 0
         self.frequency = loop_freq
 
     def update(self, mode, swing_time):
+        self.mode = mode
         swing_count = swing_time * self.frequency
         index = self.trigger_round[self.timer_trigger_time % 4] - 1
 
@@ -72,7 +76,8 @@ class LinkLeg:
         self.freq = freq
         self.state_tb = tb
         self.state_phi = lt.getPhiRL(tb)
-        self.vec_OG = vec_OG(self.state_phi[0, 0], self.state_phi[1, 0])
+        self.vec_OG = lk.FowardKinematics(tb)
+        # self.vec_OG = vec_OG(self.state_phi[0, 0], self.state_phi[1, 0])
         self.len_OG = np.linalg.norm(self.vec_OG)
 
         # quadratic Trajectory coeff
@@ -153,9 +158,11 @@ class LinkLeg:
         if desired_length > 0.3428:
             return "error"
         else:
-            phiRL = lt.getPhiRL(current_tb)
-            v_OG = vec_OG(phiRL[0, 0], phiRL[1, 0])
-            iter_length = np.sqrt(v_OG.T @ v_OG)[0, 0]
+            # phiRL = lt.getPhiRL(current_tb)
+            # v_OG = vec_OG(phiRL[0, 0], phiRL[1, 0])
+            # iter_length = np.sqrt(v_OG.T @ v_OG)[0, 0]
+            v_OG = lk.FowardKinematics(current_tb)
+            iter_length = np.linalg.norm(v_OG)
             theta = current_tb[0, 0]
 
             error = desired_length - iter_length
@@ -165,8 +172,9 @@ class LinkLeg:
 
             while abs(error) > tolerance:
                 theta = theta + (p_gain * error)
-                phiRL = lt.getPhiRL(np.array([[theta], [0]]))
-                v_OG = vec_OG(phiRL[0, 0], phiRL[1, 0])
+                # phiRL = lt.getPhiRL(np.array([[theta], [0]]))
+                # v_OG = vec_OG(phiRL[0, 0], phiRL[1, 0])
+                v_OG = lk.FowardKinematics(np.array([[theta], [0]]))
                 iter_length = np.sqrt(v_OG.T @ v_OG)[0, 0]
                 error = desired_length - iter_length
             return theta
@@ -176,11 +184,12 @@ class Corgi:
     def __init__(self, loop_freq, cpg):
         self.cpg = cpg
         self.mode = MODE_WALK
-        self.step_length = 0.2
-        self.step_height = 0.1
+        self.step_length = 0.15
+        self.step_height = 0.15
         # swing_time = step_length/heading_velocity
         self.swing_time = 1
         self.stance_height = 0.2
+        self.total_time = 20
 
         # Robot initial state (in Theta-Beta Representation)
         self.initial_position = np.array([[0], [0], [0.1]])
@@ -190,6 +199,8 @@ class Corgi:
         # Physics Prop. (SI unit)
         self.g = np.array([[0], [0], [-9.80665]])
         self.m = 26.662009  # kg
+        self.m_leg = 0.654
+        self.m_body = self.m - self.m_leg
         self.d_l = 577.5 * 0.001
         self.d_w = 329.5 * 0.001
         self.d_h = 144 * 0.001
@@ -235,7 +246,7 @@ class Corgi:
         self.vs_hip_c = None
         self.vs_hip_d = None
         self.vs_fhs = []
-        
+        self.vs_leg_a = None
 
     def standUp(self, vel):
         print("Standing Up ...")
@@ -260,8 +271,7 @@ class Corgi:
         avg_vel = 0
         t_sw = 0
         swing_config = []
-
-        while self.loop_cnt < 40 * self.frequency:
+        while self.loop_cnt < self.total_time * self.frequency:
             self.cpg.update(self.mode, self.swing_time)
             # print("[CPG] ", self.cpg.contact)
 
@@ -351,6 +361,75 @@ class Corgi:
         vel = (com2 - com1)/self.swing_time
         return vel
 
+    def evaluateFAStability(self, Fr, Nr):
+        contact_legs = []
+        contact_point_bf = []
+        stability_idxs = []
+        p_c_ = self.getCOMPosition
+        if self.cpg.mode == MODE_WALK:
+            for i in range(4):
+                if self.cpg.contact[i] == "False":
+                    contact_legs.append(self.legs[i])
+                    contact_point_bf.append(self.getFootTipPosition(i))
+            v_a0 = contact_point_bf[1] - contact_point_bf[0]
+            v_a1 = contact_point_bf[2] - contact_point_bf[1]
+            v_a2 = contact_point_bf[0] - contact_point_bf[2]
+            # side_vec = [v_a0, v_a1, v_a2]
+            u_a0 = v_a0/np.linalg.norm(v_a0)
+            u_a1 = v_a1/np.linalg.norm(v_a1)
+            u_a2 = v_a2/np.linalg.norm(v_a2)
+            uside_vec = [u_a0, u_a1, u_a2] # unit vector of support triangle
+            for i in range(3):
+                # Evaluate Force Angle Stability for each side of support triangle
+                u_s_ = uside_vec[i] 
+                # s_ = side_vec[i]
+                p_i_ = contact_point_bf[i]
+                l_ = (np.eye(3) - u_s_@u_s_.T) @ (p_i_ - p_c_)
+                F_ = (np.eye(3) - u_s_@u_s_.T) @ Fr
+                N_ = u_s_ @ u_s_.T @ Nr
+                # Equiv. Torque to Force Couple
+                F_n_ = np.cross(l_, N_)/np.linalg.norm(l_)
+                F_ = F_ + F_n_
+
+                u_F_ = F_ / np.linalg.norm(F_)
+                d_ = -l_ + (l_.T@u_F_)@u_F_
+                if np.cross(F_, l_)@u_s_[0,0] >= 0:
+                    sign = 1
+                else:
+                    sign = -1
+                angle_ = sign * np.arccos(F_.T@l_)
+                stab_ = angle_ * np.linalg.norm(d_) * np.linalg.norm(F_)
+                stability_idxs.append(stab_)
+            stability_idx = min(stability_idxs)
+            return stability_idx
+        
+        elif self.cpg.mode == MODE_TROT:
+            pass
+
+    def getFootTipPosition(self, idx):
+        # Return foot tip position in World Frame
+        lf_OG = lk.FowardKinematics(self.legs[idx].state_tb)
+        if idx == 0 or idx == 3:
+            v_OG = np.array([[-1, 0], [0, 0], [0, 1]]) @ lf_OG
+        else:
+            v_OG = np.array([[1, 0], [0, 0], [0, 1]]) @ lf_OG
+        return self.Position + self.legs_offset[idx] + v_OG
+
+    def getCOMPosition(self):
+        # return com position considering link leg mass in Base Frame
+        coms_ = np.array([[0], [0], [0]])
+        for i, leg in enumerate(self.legs):
+            rm_ = lt.getRm(leg.state_tb[0, 0])
+            lf_OG = leg.vec_OG
+            if i == 0 or i == 3:
+                v_OG = np.array([[-1, 0], [0, 0], [0, 1]]) @ lf_OG
+            else:
+                v_OG = np.array([[1, 0], [0, 0], [0, 1]]) @ lf_OG                
+            coms_ += self.m_leg * (self.Position + self.legs_offset[i] + (rm_/np.linalg.norm(v_OG)) * v_OG)
+        coms_ += self.m_body * self.Position
+        coms_ = coms_/4*self.m
+        return coms_
+
     def recordTrajectory(self):
         leg_state = [self.iter_t, self.Position.reshape(
             1, -1).ravel().tolist()]
@@ -382,28 +461,30 @@ class Corgi:
             p_C_hip = self.getHipPosition(2, p_com_vec)
             p_D_hip = self.getHipPosition(3, p_com_vec)
             p_hip = [p_A_hip, p_B_hip, p_C_hip, p_D_hip] 
-            self.vs_hip_a.set_data(p_A_hip[0, 0], p_A_hip[1, 0])
+            """ self.vs_hip_a.set_data(p_A_hip[0, 0], p_A_hip[1, 0])
             self.vs_hip_a.set_3d_properties(p_A_hip[2, 0])
             self.vs_hip_b.set_data(p_B_hip[0, 0], p_B_hip[1, 0])
             self.vs_hip_b.set_3d_properties(p_B_hip[2, 0])
             self.vs_hip_c.set_data(p_C_hip[0, 0], p_C_hip[1, 0])
             self.vs_hip_c.set_3d_properties(p_C_hip[2, 0])
             self.vs_hip_d.set_data(p_D_hip[0, 0], p_D_hip[1, 0])
-            self.vs_hip_d.set_3d_properties(p_D_hip[2, 0])
+            self.vs_hip_d.set_3d_properties(p_D_hip[2, 0]) """
+
 
             for i in range(4):
                 midx = 2*i+3
                 phiR_, phiL_ = self.trajectory[idx][midx]
-                lf_OG = vec_OG(phiR_, phiL_)
+                # lf_OG = vec_OG(phiR_, phiL_)
+                lf_OG = lk.FowardKinematics(np.array([[phiR_], [phiL_]]), "phi")
                 if i == 0 or i == 3:
                     v_OG = np.array([[-1, 0], [0, 0], [0, 1]]) @ lf_OG
                 else:
                     v_OG = np.array([[1, 0], [0, 0], [0, 1]]) @ lf_OG
                 p_G = p_hip[i] + v_OG
-                self.vs_fhs[i].set_data(p_G[0,0], p_G[1,0])
-                self.vs_fhs[i].set_3d_properties(p_G[2,0])
+                self.vs_fhs[i].set_data([p_hip[i][0,0], p_G[0,0]], [p_hip[i][1,0], p_G[1,0]])
+                self.vs_fhs[i].set_3d_properties([p_hip[i][2,0], p_G[2,0]])
 
-        return self.vs_com, self.vs_hip_a, self.vs_hip_b, self.vs_hip_c, self.vs_hip_d
+        return self.vs_com, self.vs_hip_a, self.vs_hip_b, self.vs_hip_c, self.vs_hip_d, 
 
     def visualize(self):
         # FPS <= loop frequency
@@ -418,18 +499,19 @@ class Corgi:
         self.ax.set_xlabel('X')
         self.ax.set_ylabel('Y')
         self.ax.set_zlabel('Z')
-        self.ax.axes.set_xlim3d([-1, 3])
+        self.ax.axes.set_xlim3d([-0.25, 1.75])
         self.ax.axes.set_ylim3d([-1, 1])
-        self.ax.axes.set_zlim3d([0, 0.5])
+        self.ax.axes.set_zlim3d([0, 1.5])
 
-        self.vs_com = self.ax.plot([], [], [], '.', color=color_body[1])[0]
-        self.vs_hip_a = self.ax.plot([], [], [], '.', color=color_body[0])[0]
-        self.vs_hip_b = self.ax.plot([], [], [], '.', color=color_body[0])[0]
-        self.vs_hip_c = self.ax.plot([], [], [], '.', color=color_body[0])[0]
-        self.vs_hip_d = self.ax.plot([], [], [], '.', color=color_body[0])[0]
+        self.vs_com = self.ax.plot([], [], [], 'o', color=color_body[1])[0]
+        """ self.vs_hip_a = self.ax.plot([], [], [], '-', color=color_body[0])[0]
+        self.vs_hip_b = self.ax.plot([], [], [], '-', color=color_body[0])[0]
+        self.vs_hip_c = self.ax.plot([], [], [], '-', color=color_body[0])[0]
+        self.vs_hip_d = self.ax.plot([], [], [], '-', color=color_body[0])[0] """
+        self.vs_leg_a = self.ax.plot([], [], [], '.', color=color_body[0])[0]
 
         for i in range(4):
-            self.vs_fhs.append(self.ax.plot([], [], [], '.', color=color_modlist[i])[0])
+            self.vs_fhs.append(self.ax.plot([], [], [], 'o-', color=color_modlist[i])[0])
 
         ani = animation.FuncAnimation(fig, self.updateAnimation, frames=frame_count, interval=frame_interval, repeat=True)
         # ani.save("animation.mp4")
@@ -438,11 +520,10 @@ class Corgi:
 if __name__ == '__main__':
     print("CPG Started")
 
-    loop_freq = 30  # Hz
+    loop_freq = 1000  # Hz
     FSM = FiniteStateMachine(loop_freq)
     CORGI = Corgi(loop_freq, FSM)
 
     CORGI.standUp(0.05)
     CORGI.move()
-
     CORGI.visualize()
