@@ -11,10 +11,10 @@ import matplotlib.pyplot as plt
 
 
 def get_parser():
-    parser = argparse.ArgumentParser(
-        description='Simplified Model Description')
-    parser.add_argument('-f', '--datapath',
-                        default='sbrio_data/loadcell/loadcell_data_0519/20230519_sinewave_t_90_45_5_b_0_0_1_24.csv')
+    parser = argparse.ArgumentParser(description="Simplified Model Description")
+    parser.add_argument(
+        "-f", "--datapath", default="sbrio_data/loadcell/loadcell_data_0519/20230519_sinewave_t_90_45_5_b_0_0_1_24.csv"
+    )
     return parser
 
 
@@ -47,12 +47,12 @@ class SBRIO_data:
 
         init_row = 0
         for i in range(df.shape[0]):
-            if df.iloc[i+1, 1] != 0:
+            if df.iloc[i + 1, 1] != 0:
                 init_row = i
                 break
 
         print("First Row :", init_row)
-        df = df.iloc[init_row:(raw_dfshape[0]-1), :]
+        df = df.iloc[init_row : (raw_dfshape[0] - 1), :]
 
         last_row = 0
         for i in range(df.shape[0]):
@@ -64,7 +64,7 @@ class SBRIO_data:
         print("Last row :", init_row + last_row)
         print("Trimmed Data shape :", df.shape)
         # print(list(df.iloc[0, :]))
-        rpy_loadcell = (df.iloc[:, 58]-0.654) * 9.80665
+        rpy_loadcell = (df.iloc[:, 58] - 0.654) * 9.80665
         self.loadcell = np.array(rpy_loadcell).reshape((-1, 1))
 
         rpy_pos_phi_R = df.iloc[:, 13]
@@ -77,8 +77,7 @@ class SBRIO_data:
 
         rpy_trq_phi_R = df.iloc[:, 15]
         rpy_trq_phi_L = df.iloc[:, 18]
-        self.rpy_trq_phi = self.KT_comp * \
-            np.array([rpy_trq_phi_R, rpy_trq_phi_L]).T
+        self.rpy_trq_phi = self.KT_comp * np.array([rpy_trq_phi_R, rpy_trq_phi_L]).T
 
         cmd_pos_phi_R = df.iloc[:, 1]
         cmd_pos_phi_L = df.iloc[:, 6]
@@ -94,7 +93,7 @@ class SBRIO_data:
         self.rpy_pos_tb = np.array(self.rpy_pos_tb).reshape((-1, 2))
 
         for velRL in self.rpy_vel_phi:
-            J_tb = np.matrix([[1/2, -1/2], [1/2, 1/2]])
+            J_tb = np.matrix([[1 / 2, -1 / 2], [1 / 2, 1 / 2]])
             vel_tb = J_tb * velRL[None].T
             self.rpy_vel_tb.append(vel_tb.T)
         self.rpy_vel_tb = np.array(self.rpy_vel_tb).reshape((-1, 2))
@@ -108,28 +107,28 @@ class SBRIO_data:
 
 
 class SimplifiedModel:
-    def __init__(self, filepath) -> None:
+    def __init__(self, filepath="", data_analysis=True) -> None:
         # Dynamic Model Properties
         self.m = 0.654  # Total Mass of link leg
         self.g = 9.81  # Gravity
         self.Fc = 1.4  # Columb Friction Coeff.
         self.Fv = 0.72  # Viscous Friction Coeff.
 
-        self.data = SBRIO_data("../"+filepath)
-        # self.data = filepath
+        if data_analysis:
+            self.data = SBRIO_data("../" + filepath)
+            # self.data = filepath
+            # foward dynamic ode setup
+            self.tspan = (self.data.t[0, 0], self.data.t[-1, 0])
+            self.tau = self.data.rpy_trq_phi
 
-        # foward dynamic ode setup
-        self.tspan = (self.data.t[0, 0], self.data.t[-1, 0])
-        self.tau = self.data.rpy_trq_phi
-
-        # set initial condition from data
-        init_tb = lt.getThetaBeta(np.reshape(self.data.rpy_pos_phi[0, :], (2, 1)))
-        init_Rm = lt.getRm(init_tb[0, 0])
-        self.init_condition = [init_Rm, 0, init_tb[1, 0], 0]
+            # set initial condition from data
+            init_tb = lt.getThetaBeta(np.reshape(self.data.rpy_pos_phi[0, :], (2, 1)))
+            init_Rm = lt.getRm(init_tb[0, 0])
+            self.init_condition = [init_Rm, 0, init_tb[1, 0], 0]
 
         # iterate foward dynamic model
         self.iterate_freq = 100  # Hz
-        self.iterate_dt = 1/self.iterate_freq
+        self.iterate_dt = 1 / self.iterate_freq
         self.iterate_horizon = 0.025  # second
         self.iterate_trajectory = []
 
@@ -141,26 +140,31 @@ class SimplifiedModel:
         while iter_t0 < self.data.t[-1]:
             # get initial condition
             print("--- ", iter_t0, " ----")
-            phi_R_ = np.interp(iter_t0, self.data.t.T.ravel(),
-                               self.data.rpy_pos_phi[:, 0].T)
-            phi_L_ = np.interp(iter_t0, self.data.t.T.ravel(),
-                               self.data.rpy_pos_phi[:, 1].T)
+            phi_R_ = np.interp(iter_t0, self.data.t.T.ravel(), self.data.rpy_pos_phi[:, 0].T)
+            phi_L_ = np.interp(iter_t0, self.data.t.T.ravel(), self.data.rpy_pos_phi[:, 1].T)
 
-            d_phi_R_ = np.interp(iter_t0, self.data.t.T.ravel(),
-                                 self.data.rpy_vel_phi[:, 0].T)
-            d_phi_L_ = np.interp(iter_t0, self.data.t.T.ravel(),
-                                 self.data.rpy_vel_phi[:, 1].T)
+            d_phi_R_ = np.interp(iter_t0, self.data.t.T.ravel(), self.data.rpy_vel_phi[:, 0].T)
+            d_phi_L_ = np.interp(iter_t0, self.data.t.T.ravel(), self.data.rpy_vel_phi[:, 1].T)
 
             tb_ = lt.getThetaBeta(np.array([[phi_R_], [phi_L_]]))
             theta_ = tb_[0, 0]
             beta_ = tb_[1, 0]
             rm_ = lt.getRm(theta_)
 
-            J1 = np.mat([[1/2, -1/2],
-                        [1/2, 1/2]])
+            J1 = np.mat([[1 / 2, -1 / 2], [1 / 2, 1 / 2]])
 
-            Jr = np.mat([[4*lt.rm_coeff[4]*theta_**3 + 3*lt.rm_coeff[3]*theta_**2 + 2*lt.rm_coeff[2]*theta_ + lt.rm_coeff[1], 0],
-                         [0, 1]])
+            Jr = np.mat(
+                [
+                    [
+                        4 * lt.rm_coeff[4] * theta_**3
+                        + 3 * lt.rm_coeff[3] * theta_**2
+                        + 2 * lt.rm_coeff[2] * theta_
+                        + lt.rm_coeff[1],
+                        0,
+                    ],
+                    [0, 1],
+                ]
+            )
 
             d_rb_ = Jr * J1 * np.mat([[d_phi_R_], [d_phi_L_]])
             d_rm_ = d_rb_[0, 0]
@@ -174,8 +178,7 @@ class SimplifiedModel:
             #     self.fowardLinkLegODE, self.tspan, self.init_condition, atol=1e-2, rtol=1e-2)
 
             # Numerical Solution Foward Euler Method
-            traj = self.fowardEulerMethod(self.fowardLinkLegODE,
-                                          init_condition, tspan, 0.0025)
+            traj = self.fowardEulerMethod(self.fowardLinkLegODE, init_condition, tspan, 0.0025)
             plt.plot(traj[:, 0], traj[:, 1], alpha=0.4)
             iter_t0 += self.iterate_dt
             pass
@@ -190,13 +193,11 @@ class SimplifiedModel:
         plt.grid()
         plt.show()
 
-        pass
-
     def fowardEulerMethod(self, ode, ic, tspan, step_size):
         t_ = tspan[0]
         state_ = ic
         traj = np.append(t_, state_)
-        while (t_ <= tspan[1]):
+        while t_ <= tspan[1]:
             t_ += step_size
             state_ += np.array(ode(t_, state_)) * step_size
             traj = np.append(traj, t_)
@@ -212,12 +213,12 @@ class SimplifiedModel:
 
         # Get current theta from rm_
         # High order to low order
-        rm_coeff_func_flip = [-0.0035, 0.0110, 0.0030, 0.0500, -0.0132-rm_]
+        rm_coeff_func_flip = [-0.0035, 0.0110, 0.0030, 0.0500, -0.0132 - rm_]
         theta_roots = np.roots(rm_coeff_func_flip)
         theta_ = 0
         theta_found = False
         for root in theta_roots:
-            if root.imag == 0.:
+            if root.imag == 0.0:
                 if root.real >= np.deg2rad(16.9) and root.real <= np.deg2rad(160.1):
                     theta_ = root.real
                     theta_found = True
@@ -230,47 +231,59 @@ class SimplifiedModel:
             return False
         else:
             # Transform Torque input to F_rm and T_beta
-            tau_phi_R_func = interpolate.interp1d(
-                self.data.t.T.ravel(), self.tau[:, 0].T, fill_value='extrapolate')
-            tau_phi_L_func = interpolate.interp1d(
-                self.data.t.T.ravel(), self.tau[:, 1].T, fill_value='extrapolate')
+            tau_phi_R_func = interpolate.interp1d(self.data.t.T.ravel(), self.tau[:, 0].T, fill_value="extrapolate")
+            tau_phi_L_func = interpolate.interp1d(self.data.t.T.ravel(), self.tau[:, 1].T, fill_value="extrapolate")
             tau_phi_R = tau_phi_R_func(t)
             tau_phi_L = tau_phi_L_func(t)
             # tau_phi_R = np.interp(t, self.data.t.T.ravel(), self.tau[:, 0].T)
             # tau_phi_L = np.interp(t, self.data.t.T.ravel(), self.tau[:, 1].T)
 
             # Take Joint Friction Force into account
-            J1 = np.mat([[1/2, -1/2],
-                        [1/2, 1/2]])
-            Jr = np.mat([[4*rm_coeff[4]*theta_**3 + 3*rm_coeff[3]*theta_**2 + 2*rm_coeff[2]*theta_ + rm_coeff[1], 0],
-                         [0, 1]])
+            J1 = np.mat([[1 / 2, -1 / 2], [1 / 2, 1 / 2]])
+            Jr = np.mat(
+                [
+                    [
+                        4 * rm_coeff[4] * theta_**3
+                        + 3 * rm_coeff[3] * theta_**2
+                        + 2 * rm_coeff[2] * theta_
+                        + rm_coeff[1],
+                        0,
+                    ],
+                    [0, 1],
+                ]
+            )
             d_phi_RL = np.linalg.inv(Jr * J1) * np.mat([[d_rm_], [d_beta_]])
 
-            '''
+            """
             tau_friction_R = - \
                 (self.Fc * np.sign(d_phi_RL[0, 0]) + self.Fv * d_phi_RL[0, 0])
             tau_friction_L = - \
                 (self.Fc * np.sign(d_phi_RL[1, 0]) + self.Fv * d_phi_RL[1, 0])
-            '''
+            """
 
             # Ichia Version Friction model
-            tau_friction_R = - \
-                (0.45*np.sign(d_phi_RL[0, 0]) + 0.28 *
-                 np.sign(d_phi_RL[0, 0])*tau_phi_R)
-            tau_friction_L = - \
-                (0.45*np.sign(d_phi_RL[1, 0]) + 0.28 *
-                 np.sign(d_phi_RL[1, 0])*tau_phi_R)
+            tau_friction_R = -(0.45 * np.sign(d_phi_RL[0, 0]) + 0.28 * np.sign(d_phi_RL[0, 0]) * tau_phi_R)
+            tau_friction_L = -(0.45 * np.sign(d_phi_RL[1, 0]) + 0.28 * np.sign(d_phi_RL[1, 0]) * tau_phi_R)
             # tau_friction_R = 0
             # tau_friction_L = 0
 
-            tau_total = np.array([[tau_phi_R + tau_friction_R],
-                                  [tau_phi_L + tau_friction_L]])
+            tau_total = np.array([[tau_phi_R + tau_friction_R], [tau_phi_L + tau_friction_L]])
 
             Frm_, Tb_ = lt.getFrmTb(tau_total, theta_)
 
             # get d_Ic from [d_rm_; d_beta];
-            J_Ic = np.mat([[4*Icom_coeff[4]*theta_**3 + 3*Icom_coeff[3]*theta_**2 + 2*Icom_coeff[2]*theta_ + Icom_coeff[1], 0],
-                           [0, 1]])
+            J_Ic = np.mat(
+                [
+                    [
+                        4 * Icom_coeff[4] * theta_**3
+                        + 3 * Icom_coeff[3] * theta_**2
+                        + 2 * Icom_coeff[2] * theta_
+                        + Icom_coeff[1],
+                        0,
+                    ],
+                    [0, 1],
+                ]
+            )
             d_Ic = J_Ic * np.linalg.inv(Jr) * np.mat([[d_rm_], [d_beta_]])
             d_Ic = d_Ic[0, 0]
 
@@ -278,17 +291,16 @@ class SimplifiedModel:
             I_hip = I_com + self.m * rm_**2
 
             # Obtain dd_rm_, dd_beta_ from Lagrange equation
-            dd_rm_ = (Frm_ + self.m*rm_*d_beta_**2 +
-                      self.m*self.g*np.cos(beta_))/self.m
+            dd_rm_ = (Frm_ + self.m * rm_ * d_beta_**2 + self.m * self.g * np.cos(beta_)) / self.m
 
-            dd_beta_ = (1/I_hip) * (Tb_ - 2*self.m*rm_*d_rm_*d_beta_ -
-                                    d_Ic*d_beta_ - self.m*self.g*rm_*np.sin(beta_))
+            dd_beta_ = (1 / I_hip) * (
+                Tb_ - 2 * self.m * rm_ * d_rm_ * d_beta_ - d_Ic * d_beta_ - self.m * self.g * rm_ * np.sin(beta_)
+            )
 
             return [d_rm_, dd_rm_[0, 0], d_beta_, dd_beta_[0, 0]]
 
     def solveFowardDyanamic(self):
-        result_solve_ivp = solve_ivp(
-            self.fowardLinkLegODE, self.tspan, self.init_condition, atol=1e-2, rtol=1e-2)
+        result_solve_ivp = solve_ivp(self.fowardLinkLegODE, self.tspan, self.init_condition, atol=1e-2, rtol=1e-2)
 
         rpy_rm = []
         for i in range(self.data.rpy_pos_phi.shape[0]):
@@ -312,10 +324,13 @@ class SimplifiedModel:
         Ic_ = lt.getIc(theta_)
         dIc_ = lt.get_dIc(theta_, dtheta_)
 
-        F_rm = self.m*ddrm_ - self.m*rm_ * \
-            dbeta_**2 - self.m*self.g*np.cos(beta_)
-        T_beta = (Ic_ + self.m*rm_**2)*ddbeta_ + 2*self.m*rm_*drm_ * \
-            dbeta_ + dIc_*dbeta_ + self.m*self.g*rm_*np.sin(beta_)
+        F_rm = self.m * ddrm_ - self.m * rm_ * dbeta_**2 - self.m * self.g * np.cos(beta_)
+        T_beta = (
+            (Ic_ + self.m * rm_**2) * ddbeta_
+            + 2 * self.m * rm_ * drm_ * dbeta_
+            + dIc_ * dbeta_
+            + self.m * self.g * rm_ * np.sin(beta_)
+        )
 
         return np.array([F_rm, T_beta])
 
@@ -329,13 +344,13 @@ class SimplifiedModel:
 
             ddtheta = sbrio_data.rpy_acc_tb[i, 0]
             ddbeta = sbrio_data.rpy_acc_tb[i, 1]
-            sbrio_data.invdyn_tauFrmTb_total.append(self.inverseLinkLegODE(
-                [theta, dtheta, ddtheta, beta, dbeta, ddbeta]))
+            sbrio_data.invdyn_tauFrmTb_total.append(
+                self.inverseLinkLegODE([theta, dtheta, ddtheta, beta, dbeta, ddbeta])
+            )
 
-        sbrio_data.invdyn_tauFrmTb_total = np.array(
-            sbrio_data.invdyn_tauFrmTb_total)
+        sbrio_data.invdyn_tauFrmTb_total = np.array(sbrio_data.invdyn_tauFrmTb_total)
 
-        '''
+        """
         fig, ax = plt.subplots()
         print(sbrio_data.loadcell)
         print(sbrio_data.t[1:, 0])
@@ -345,7 +360,7 @@ class SimplifiedModel:
         leg = ax.legend(loc="upper right")
         plt.grid()
         plt.show()
-        '''
+        """
 
     def getFrictionTau(self, sbrio_data):
         # Get Tau_friction from inverse dynamic
@@ -361,8 +376,7 @@ class SimplifiedModel:
             tauRL = lt.getTauRL(tauFrmTb, theta).T
             sbrio_data.invdyn_tauRL_total.append(tauRL)
 
-        sbrio_data.invdyn_tauRL_total = np.array(
-            sbrio_data.invdyn_tauRL_total).reshape((-1, 2))
+        sbrio_data.invdyn_tauRL_total = np.array(sbrio_data.invdyn_tauRL_total).reshape((-1, 2))
 
         print(sbrio_data.invdyn_tauRL_total.shape)
         print(sbrio_data.rpy_trq_phi.shape)
@@ -374,13 +388,12 @@ class SimplifiedModel:
 
         print(sbrio_data.invdyn_tauRL_total)
         print(motor_tauRL)
-        friction_tauRL = np.mat(
-            sbrio_data.invdyn_tauRL_total) - np.mat(motor_tauRL)
+        friction_tauRL = np.mat(sbrio_data.invdyn_tauRL_total) - np.mat(motor_tauRL)
         print(friction_tauRL)
         print("friction_tau shape", friction_tauRL.shape)
         print("vel_RL shape", sbrio_data.rpy_vel_phi.shape)
         # plt.plot(motor_tauRL[:, 1])
-        plt.plot(motor_tauRL[:, 1], friction_tauRL[:, 1],  linewidth=1)
+        plt.plot(motor_tauRL[:, 1], friction_tauRL[:, 1], linewidth=1)
         # plt.plot(motor_velRL[:, 1])
 
         plt.show()
@@ -389,12 +402,12 @@ class SimplifiedModel:
         #     [theta, dtheta, ddtheta, beta, dbeta, ddbeta]))
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     parser = get_parser()
     args = parser.parse_args()
 
     print("--- Simplified link leg Model ---")
-    print('Data: ' + args.datapath)
+    print("Data: " + args.datapath)
 
     # sb_ = SBRIO_data(args.datapath)
     # sb_.importData(args.datapath)
