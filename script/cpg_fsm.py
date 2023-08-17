@@ -26,7 +26,8 @@ class FiniteStateMachine:
         # True -> Swing, False -> Stance
         self.contact = [False, False, False, False]
         self.swing_counts = [0, 0, 0, 0]
-        self.trigger_round = [1, 3, 2, 4]
+        # self.trigger_round = [1, 3, 2, 4]
+        self.trigger_round = [4, 1, 3, 2]
         self.count = 0
         self.mode = MODE_STOP
 
@@ -112,7 +113,10 @@ class LinkLeg:
         # get theta_k from inverse kinematics approx...
         theta_k = self.solveLegIK(leglen_k, self.state_tb)
 
-        dbeta_k = dbeta_sign * np.arccos((vec_OG_k.T @ self.vec_OG) / (self.len_OG * leglen_k))[0, 0]
+        dbeta_k = (
+            dbeta_sign
+            * np.arccos((vec_OG_k.T @ self.vec_OG) / (self.len_OG * leglen_k))[0, 0]
+        )
 
         # Update
         self.len_OG = leglen_k
@@ -174,19 +178,30 @@ class LinkLeg:
 
     def getSwingLegInvDynamics(self):
         # LDM.inverseLinkLegODE
-        print("Inverse Dynamic result", LDM.inverseLinkLegODE(self.cur_state))
+        F_rm, T_b = LDM.inverseLinkLegODE(self.cur_state)
+        F_x = -1 * abs(F_rm) * np.sin(self.cur_state[0])
+        F_y = -1 * abs(F_rm) * np.cos(self.cur_state[3])
+
+        if self.idx == 0 or self.idx == 3:
+            F_x *= -1
+            T_bf = np.array([[0], [-T_b], [0]])
+        else:
+            T_bf = np.array([[0], [T_b], [0]])
+
+        F_bf = np.array([[F_x], [0], [F_y]])
+        return [F_bf, T_bf]
 
 
 class Corgi:
     def __init__(self, loop_freq, cpg):
         self.cpg = cpg
         self.mode = MODE_WALK
-        self.step_length = 0.15
-        self.step_height = 0.2
+        self.step_length = 0.2
+        self.step_height = 0.1
         # swing_time = step_length/heading_velocity
-        self.swing_time = 0.5
+        self.swing_time = 0.8
         self.stance_height = 0.2
-        self.total_time = 20
+        self.total_time = 10
 
         # Robot initial state (in Theta-Beta Representation)
         self.initial_position = np.array([[0], [0], [0.1]])
@@ -228,13 +243,20 @@ class Corgi:
         self.swing_cff_x = 0  # Coefficient of Swing phase quadratic trajectory
         self.swing_cff_y = 0  # Coefficient of Swing phase quadratic trajectory
         self.Trajectory = []
-        self.fa_trajectory = []  # Info for force Angle Stability analysis [com, ]
+        self.performances = []
+        self.t_list = []
 
         # Animation
         self.animate_fps = 30
-        self.ax = None
+        self.ax1 = None
+        self.ax2 = None
         self.vs_com = None
+        self.vs_com_proj = None
         self.vs_fhs = []
+        self.vs_stab = None
+        self.vs_sup_polygon = None
+        self.vs_stab_line_t = []
+        self.vs_stab_line_s = []
 
     def standUp(self, vel):
         print("Standing Up ...")
@@ -249,6 +271,8 @@ class Corgi:
 
             self.Position = self.Position + np.array([[0], [0], [vel * self.dt]])
             self.recordTrajectory()
+            self.t_list.append(self.iter_t)
+            self.performances.append(0)
             self.iter_t += self.dt
 
         print("Time Elapsed = ", time.time() - t)
@@ -259,11 +283,13 @@ class Corgi:
         avg_vel = 0
         t_sw = 0
         swing_config = []
+        F_fl = np.array([[0], [0], [0]])  # Flight Leg Force
+        T_ffl = np.array([[0], [0], [0]])
+        T_fl = np.array([[0], [0], [0]])  # Flight Leg Torque
 
         while self.loop_cnt < self.total_time * self.frequency:
             self.cpg.update(self.mode, self.swing_time)
             self.Position += np.array([[avg_vel * self.dt], [0], [0]])
-
             for i in range(4):
                 self.legs[i].updateDynamicState(self.dt)
                 if self.cpg.contact[i] == False:
@@ -279,23 +305,41 @@ class Corgi:
                         avg_vel = self.getAverageVelocity(swing_config[1], i)[0, 0]
                         prev_contact = self.cpg.contact.copy()
 
-                    sp = self.getSwingPoint(t_sw, swing_config[0], swing_config[2], swing_config[3])
+                    sp = self.getSwingPoint(
+                        t_sw, swing_config[0], swing_config[2], swing_config[3]
+                    )
                     bf_sp = sp - self.Position - self.legs_offset[i]
                     if i == 0 or i == 3:
                         lf_sp = np.array([[-1, 0, 0], [0, 0, 1]]) @ bf_sp
                     else:
                         lf_sp = np.array([[1, 0, 0], [0, 0, 1]]) @ bf_sp
-                    self.legs[i].getSwingLegInvDynamics()
+
+                    F_fl, T_fl = self.legs[i].getSwingLegInvDynamics()
+                    T_ffl = np.cross(self.legs_offset[i].T, F_fl.T).T
                     self.legs[i].moveSwing(lf_sp)
 
-            """ Fr_ = np.array([[0], [0], [-9.81 * self.m_body]])
+            Fr_ = np.array([[0], [0], [-9.81 * self.m_body]])
             Nr_ = np.array([[0], [0], [0]])
-            self.evaluateFAStability(Fr_, Nr_) """
+            s2 = self.evaluateFAStability(Fr_, Nr_)
+            # print("s1", self.evaluateFAStability(Fr_, Nr_))
+
+            Fr_ = np.array([[0], [0], [-9.81 * self.m_body]]) + F_fl
+            # print("F_fl", F_fl)
+            Nr_ = np.array([[0], [0], [0]]) + T_fl + T_ffl
+            s = self.evaluateFAStability(Fr_, Nr_)
+            # print("s2", s)
+            print("Diff between Fight leg consider", s2 - s)
+
+            self.performances.append(s)
+            self.t_list.append(self.iter_t)
 
             self.recordTrajectory()
             self.iter_t += self.dt
             t_sw += self.dt
             self.loop_cnt += 1
+
+        # plt.plot(self.t_list, self.performance)
+        # plt.show()
 
     def getHipPosition(self, idx, com_pose):
         return com_pose + self.legs_offset[idx]
@@ -386,7 +430,9 @@ class Corgi:
                     sign = 1
                 else:
                     sign = -1
-                angle_ = sign * np.arccos((F_.T @ l_) / (np.linalg.norm(F_) * np.linalg.norm(l_)))
+                angle_ = sign * np.arccos(
+                    (F_.T @ l_) / (np.linalg.norm(F_) * np.linalg.norm(l_))
+                )
                 stab_ = angle_ * np.linalg.norm(d_) * np.linalg.norm(F_)
                 stability_idxs.append(stab_[0, 0])
             stability_idx = min(stability_idxs)
@@ -415,7 +461,11 @@ class Corgi:
                 v_OG = np.array([[-1, 0], [0, 0], [0, 1]]) @ lf_OG
             else:
                 v_OG = np.array([[1, 0], [0, 0], [0, 1]]) @ lf_OG
-            coms_ += self.m_leg * (self.Position + self.legs_offset[i] + (rm_ / np.linalg.norm(v_OG)) * v_OG)
+            coms_ += self.m_leg * (
+                self.Position
+                + self.legs_offset[i]
+                + (rm_ / np.linalg.norm(v_OG)) * v_OG
+            )
         coms_ += self.m_body * self.Position
         coms_ = coms_ / 4 * self.m
         return coms_
@@ -445,12 +495,19 @@ class Corgi:
             self.vs_com.set_data(p_com[0], p_com[1])
             self.vs_com.set_3d_properties(p_com[2])
 
+            self.vs_stab_line_t.append(self.Trajectory[idx][0])
+            self.vs_stab_line_s.append(self.performances[idx])
+            self.vs_stab.set_data(self.vs_stab_line_t, self.vs_stab_line_s)
+
             p_A_hip = self.getHipPosition(0, p_com_vec)
             p_B_hip = self.getHipPosition(1, p_com_vec)
             p_C_hip = self.getHipPosition(2, p_com_vec)
             p_D_hip = self.getHipPosition(3, p_com_vec)
             p_hip = [p_A_hip, p_B_hip, p_C_hip, p_D_hip]
 
+            sup_x = []
+            sup_y = []
+            sup_z = []
             for i in range(4):
                 midx = 2 * i + 3
                 phiR_, phiL_ = self.Trajectory[idx][midx]
@@ -461,10 +518,36 @@ class Corgi:
                 else:
                     v_OG = np.array([[1, 0], [0, 0], [0, 1]]) @ lf_OG
                 p_G = p_hip[i] + v_OG
-                self.vs_fhs[i].set_data([p_hip[i][0, 0], p_G[0, 0]], [p_hip[i][1, 0], p_G[1, 0]])
+
+                self.vs_fhs[i].set_data(
+                    [p_hip[i][0, 0], p_G[0, 0]], [p_hip[i][1, 0], p_G[1, 0]]
+                )
                 self.vs_fhs[i].set_3d_properties([p_hip[i][2, 0], p_G[2, 0]])
 
+                if abs(p_G[2, 0]) < 0.001:
+                    sup_x.append(p_G[0, 0])
+                    sup_y.append(p_G[1, 0])
+                    sup_z.append(p_G[2, 0])
+            sup_x.append(sup_x[0])
+            sup_y.append(sup_y[0])
+            sup_z.append(sup_z[0])
+            self.vs_sup_polygon.set_data(sup_x, sup_y)
+            self.vs_sup_polygon.set_3d_properties(sup_z)
+            self.vs_com_proj.set_data(p_com[0], p_com[1])
+            self.vs_com_proj.set_3d_properties(0)
+
         return (self.vs_com,)
+
+    def resetVisualize(self):
+        self.vs_stab_line_s = []
+        self.vs_stab_line_t = []
+
+        print(self.vs_stab_line_s)
+
+        self.ax2.clear()
+        self.ax2.axes.set_xlim([0, self.Trajectory[-1][0]])
+        self.ax2.axes.set_ylim([-6, 6])
+        self.vs_stab = self.ax2.plot([], [], "o-")[0]
 
     def visualize(self):
         # FPS <= loop frequency
@@ -472,20 +555,31 @@ class Corgi:
         frame_count = round(self.Trajectory[-1][0] * self.animate_fps)
         print("Frame interval count:", frame_interval, frame_count)
 
-        fig = plt.figure(figsize=(16, 9), dpi=150)
-        self.ax = Axes3D(fig)
+        fig = plt.figure(figsize=(16, 18), dpi=50)
+        # self.ax = Axes3D(fig)
         # fig.add_axes(self.ax)
-        # self.ax = fig.add_subplot(projection="3d")
-        self.ax.set_xlabel("X")
-        self.ax.set_ylabel("Y")
-        self.ax.set_zlabel("Z")
-        self.ax.axes.set_xlim3d([-0.25, 1.75])
-        self.ax.axes.set_ylim3d([-1, 1])
-        self.ax.axes.set_zlim3d([0, 1.5])
+        self.ax1 = fig.add_subplot(2, 1, 1, projection="3d")
+        self.ax1.set_xlabel("X")
+        self.ax1.set_ylabel("Y")
+        self.ax1.set_zlabel("Z")
+        self.ax1.axes.set_xlim3d([-0.25, 1.75])
+        self.ax1.axes.set_ylim3d([-1, 1])
+        self.ax1.axes.set_zlim3d([0, 0.8])
 
-        self.vs_com = self.ax.plot([], [], [], "o", color=color_body[1])[0]
+        self.vs_com = self.ax1.plot([], [], [], "o", color=color_body[1])[0]
         for i in range(4):
-            self.vs_fhs.append(self.ax.plot([], [], [], "o-", color=color_modlist[i])[0])
+            self.vs_fhs.append(
+                self.ax1.plot([], [], [], "o-", color=color_modlist[i])[0]
+            )
+        self.vs_sup_polygon = self.ax1.plot([], [], [], "o-", color=color_body[1])[0]
+        self.vs_com_proj = self.ax1.plot([], [], [], "D", color="orange")[0]
+
+        self.ax2 = fig.add_subplot(2, 1, 2)
+        self.ax2.axes.set_xlim([0, self.Trajectory[-1][0]])
+        self.ax2.axes.set_ylim([-6, 6])
+        self.ax2.axes.set_xlabel("time [sec]")
+        self.ax2.axes.set_ylabel("Force Angle Stability")
+        self.vs_stab = self.ax2.plot([], [], "o-")[0]
 
         ani = animation.FuncAnimation(
             fig,
@@ -493,8 +587,11 @@ class Corgi:
             frames=frame_count,
             interval=frame_interval,
             repeat=True,
+            init_func=self.resetVisualize(),
         )
+
         # ani.save("animation.mp4")
+        plt.grid()
         plt.show()
 
 
