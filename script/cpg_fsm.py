@@ -9,6 +9,7 @@ from mpl_toolkits.mplot3d import Axes3D
 import linkleg_transform as lt
 import LegKinematics as lk
 import simple_model_ode as sm
+from Bezier import Bezier
 
 
 MODE_STOP = 0
@@ -26,8 +27,8 @@ class FiniteStateMachine:
         # True -> Swing, False -> Stance
         self.contact = [False, False, False, False]
         self.swing_counts = [0, 0, 0, 0]
-        # self.trigger_round = [1, 3, 2, 4]
-        self.trigger_round = [4, 1, 3, 2]
+        self.trigger_round = [1, 3, 2, 4]
+        # self.trigger_round = [4, 1, 3, 2]
         self.count = 0
         self.mode = MODE_STOP
 
@@ -83,7 +84,7 @@ class LinkLeg:
         self.swingTrajectory = [0, 0, 0]
 
         # For inverse dynamics iteration
-        self.prev_state = [
+        self.prev_state_tb = [
             self.state_tb[0, 0],
             0,
             0,
@@ -91,7 +92,7 @@ class LinkLeg:
             0,
             0,
         ]  # [theta, dtheta, ddtheta, beta, dbeta, ddbeta]
-        self.cur_state = self.prev_state
+        self.cur_state_tb = self.prev_state_tb.copy()
 
     def updateState(self, tb):
         self.state_tb = tb
@@ -113,10 +114,7 @@ class LinkLeg:
         # get theta_k from inverse kinematics approx...
         theta_k = self.solveLegIK(leglen_k, self.state_tb)
 
-        dbeta_k = (
-            dbeta_sign
-            * np.arccos((vec_OG_k.T @ self.vec_OG) / (self.len_OG * leglen_k))[0, 0]
-        )
+        dbeta_k = dbeta_sign * np.arccos((vec_OG_k.T @ self.vec_OG) / (self.len_OG * leglen_k))[0, 0]
 
         # Update
         self.len_OG = leglen_k
@@ -169,18 +167,28 @@ class LinkLeg:
             return theta
 
     def updateDynamicState(self, dt):
-        self.cur_state[0] = self.state_tb[0, 0]  # theta
-        self.cur_state[1] = (self.cur_state[0] - self.prev_state[0]) / dt  # dtheta
-        self.cur_state[2] = (self.cur_state[1] - self.prev_state[1]) / dt  # ddtheta
-        self.cur_state[3] = self.state_tb[1, 0]  # beta
-        self.cur_state[4] = (self.cur_state[3] - self.prev_state[3]) / dt  # dbeta
-        self.cur_state[5] = (self.cur_state[4] - self.prev_state[4]) / dt
+        self.cur_state_tb[0] = self.state_tb[0, 0]  # theta
+        self.cur_state_tb[1] = (self.cur_state_tb[0] - self.prev_state_tb[0]) / dt  # dtheta
+        self.cur_state_tb[2] = (self.cur_state_tb[1] - self.prev_state_tb[1]) / dt  # ddtheta
+        self.cur_state_tb[3] = self.state_tb[1, 0]  # beta
+        self.cur_state_tb[4] = (self.cur_state_tb[3] - self.prev_state_tb[3]) / dt  # dbeta
+        self.cur_state_tb[5] = (self.cur_state_tb[4] - self.prev_state_tb[4]) / dt
+        self.prev_state_tb = self.cur_state_tb.copy()
+
+    def resetDynamicState(self):
+        self.prev_state_tb[0] = self.state_tb[0, 0]  # theta
+        self.prev_state_tb[1] = 0
+        self.prev_state_tb[2] = 0
+        self.prev_state_tb[3] = self.state_tb[1, 0]  # beta
+        self.prev_state_tb[4] = 0
+        self.prev_state_tb[5] = 0
+        self.cur_state_tb = self.prev_state_tb.copy()
 
     def getSwingLegInvDynamics(self):
         # LDM.inverseLinkLegODE
-        F_rm, T_b = LDM.inverseLinkLegODE(self.cur_state)
-        F_x = -1 * abs(F_rm) * np.sin(self.cur_state[0])
-        F_y = -1 * abs(F_rm) * np.cos(self.cur_state[3])
+        F_rm, T_b = LDM.inverseLinkLegODE(self.cur_state_tb)
+        F_x = -1 * abs(F_rm) * np.sin(self.cur_state_tb[0])
+        F_y = -1 * abs(F_rm) * np.cos(self.cur_state_tb[3])
 
         if self.idx == 0 or self.idx == 3:
             F_x *= -1
@@ -199,8 +207,9 @@ class Corgi:
         self.step_length = 0.2
         self.step_height = 0.1
         # swing_time = step_length/heading_velocity
-        self.swing_time = 0.8
+        self.swing_time = 0.6
         self.stance_height = 0.2
+        self.average_vel = 0
         self.total_time = 10
 
         # Robot initial state (in Theta-Beta Representation)
@@ -280,39 +289,41 @@ class Corgi:
 
     def move(self):
         prev_contact = [False, False, False, False]
-        avg_vel = 0
         t_sw = 0
-        swing_config = []
+        quadratic_config = []
+        bezier_config = []
         F_fl = np.array([[0], [0], [0]])  # Flight Leg Force
         T_ffl = np.array([[0], [0], [0]])
         T_fl = np.array([[0], [0], [0]])  # Flight Leg Torque
 
         while self.loop_cnt < self.total_time * self.frequency:
             self.cpg.update(self.mode, self.swing_time)
-            self.Position += np.array([[avg_vel * self.dt], [0], [0]])
+            self.Position += np.array([[self.average_vel * self.dt], [0], [0]])
+
             for i in range(4):
-                self.legs[i].updateDynamicState(self.dt)
                 if self.cpg.contact[i] == False:
                     # Stance Phase
-                    self.legs[i].moveStance(avg_vel)
+                    self.legs[i].moveStance(self.average_vel)
                 else:
                     # Flight Phase
                     if self.cpg.contact != prev_contact:
                         # Plan lift off trajectory
                         t_sw = self.dt
                         print("Lift ", i, "\n---")
-                        swing_config = self.generateSwingTrajectory(i)
-                        avg_vel = self.getAverageVelocity(swing_config[1], i)[0, 0]
+                        quadratic_config = self.getQuadraticTrajectory(i)
+                        bezier_config = self.getBezierTrajectory(i)
+                        self.average_vel = self.getAverageVelocity(quadratic_config[1], i)[0, 0]
                         prev_contact = self.cpg.contact.copy()
+                        self.legs[i].resetDynamicState()
 
-                    sp = self.getSwingPoint(
-                        t_sw, swing_config[0], swing_config[2], swing_config[3]
-                    )
+                    self.legs[i].updateDynamicState(self.dt)
+                    # sp = self.getQuadraticSwingPoint(
+                    #     t_sw, quadratic_config[0], quadratic_config[2], quadratic_config[3]
+                    # )
+                    sp = self.getBezierSwingPoint(t_sw, bezier_config)
+                    # print("sp", sp)
                     bf_sp = sp - self.Position - self.legs_offset[i]
-                    if i == 0 or i == 3:
-                        lf_sp = np.array([[-1, 0, 0], [0, 0, 1]]) @ bf_sp
-                    else:
-                        lf_sp = np.array([[1, 0, 0], [0, 0, 1]]) @ bf_sp
+                    lf_sp = self.transformBF2LF(i, bf_sp)
 
                     F_fl, T_fl = self.legs[i].getSwingLegInvDynamics()
                     T_ffl = np.cross(self.legs_offset[i].T, F_fl.T).T
@@ -328,7 +339,7 @@ class Corgi:
             Nr_ = np.array([[0], [0], [0]]) + T_fl + T_ffl
             s = self.evaluateFAStability(Fr_, Nr_)
             # print("s2", s)
-            print("Diff between Fight leg consider", s2 - s)
+            # print("Diff between Fight leg consider", s2 - s)
 
             self.performances.append(s)
             self.t_list.append(self.iter_t)
@@ -341,43 +352,94 @@ class Corgi:
         # plt.plot(self.t_list, self.performance)
         # plt.show()
 
+    def transformBF2LF(self, idx, p_bf):
+        if idx == 0 or idx == 3:
+            p_lf = np.array([[-1, 0, 0], [0, 0, 1]]) @ p_bf
+        else:
+            p_lf = np.array([[1, 0, 0], [0, 0, 1]]) @ p_bf
+        return p_lf
+
+    def transformLF2BF(self, idx, p_lf):
+        if idx == 0 or idx == 3:
+            p_bf = np.array([[-1, 0], [0, 0], [0, 1]]) @ p_lf
+        else:
+            p_bf = np.array([[1, 0], [0, 0], [0, 1]]) @ p_lf
+        return p_bf
+
     def getHipPosition(self, idx, com_pose):
         return com_pose + self.legs_offset[idx]
 
-    def generateSwingTrajectory(self, leg_idx):
+    def getQuadraticTrajectory(self, leg_idx):
         leg = self.legs[leg_idx]
-
-        if leg_idx == 0 or leg_idx == 3:
-            v_OG = np.array([[-1, 0], [0, 0], [0, 1]]) @ leg.vec_OG
-        else:
-            v_OG = np.array([[1, 0], [0, 0], [0, 1]]) @ leg.vec_OG
+        v_OG = self.transformLF2BF(leg_idx, leg.vec_OG)
 
         leg_cp1 = self.Position + self.legs_offset[leg_idx] + v_OG
         leg_cp2 = leg_cp1 + np.array([[self.step_length], [0], [0]])
-
-        """ print("leg_cp1, self.Position.T, v_OG.T:",
-              leg_cp1.T, self.Position.T, v_OG.T) """
 
         # quadratic trajectory y(t) = cff*t(t-T)
         cff_x = self.step_length / self.swing_time
         cff_y = -2 * self.step_height / (self.swing_time**2)
         return [leg_cp1, leg_cp2, cff_x, cff_y]
 
-    def getSwingPoint(self, t, cp1, cff_x, cff_y):
+    def getQuadraticSwingPoint(self, t, cp1, cff_x, cff_y):
         # Return Foothold point of swing foot in world frame
         dx = cff_x * t
         dz = cff_y * t * (t - self.swing_time)
         return cp1 + np.array([[dx], [0], [dz]])
+
+    def getBezierTrajectory(self, leg_idx, point_num=100):
+        leg = self.legs[leg_idx]
+        v_OG = self.transformLF2BF(leg_idx, leg.vec_OG)
+
+        leg_cp1 = self.Position + self.legs_offset[leg_idx] + v_OG
+        leg_cp2 = leg_cp1 + np.array([[self.step_length], [0], [0]])
+        cp1 = np.array([leg_cp1[0, 0], leg_cp1[2, 0]])
+        cp2 = np.array([leg_cp2[0, 0], leg_cp2[2, 0]])
+
+        # 12 Control Points of bezier curves [REF]
+        dh = 0.01
+        dL = 0.03
+        ddL = 0.01
+        c0 = cp1
+        # c1 = c0 - np.array([self.average_vel / (12 * self.swing_time), 0])
+        c1 = c0 - np.array([dL, 0])
+        c2 = c1 - np.array([ddL, 0]) + np.array([0, self.step_height - dh])
+        c3 = c2
+        c4 = c2
+        c5 = c0 + np.array([0.5 * self.step_length, self.step_height - dh])
+        c6 = c5
+        c7 = c5 + np.array([0, 2 * dh])
+        c8 = c7 + np.array([0.5 * self.step_length + dL, 0])
+        c9 = c8
+        c10 = c8 - np.array([ddL, 0]) - np.array([0, self.step_height + dh])
+        c11 = cp2
+        c_set = np.array([c0, c1, c2, c3, c4, c5, c6, c7, c8, c9, c10, c11])
+
+        # t_points = np.arange(0, self.swing_time, t_step)
+        t_points = np.linspace(0, 1, point_num)
+
+        curve = Bezier.Curve(t_points, c_set)
+        """ plt.plot(curve[:, 0], curve[:, 1])
+        plt.plot(c_set[:, 0], c_set[:, 1], "ro:")
+        plt.gca().set_aspect("equal", adjustable="box")
+        plt.show() """
+        return [t_points, curve, leg_cp1]
+
+    def getBezierSwingPoint(self, t, config):
+        ts, curve, cp1 = config
+        t_ = t / self.swing_time
+        x = np.interp(t_, ts, curve[:, 0])
+        z = np.interp(t_, ts, curve[:, 1])
+        # print("cp1", cp1.T)
+        # print("swp", (cp1 + np.array([[x], [0], [z]])).T)
+        return np.array([[x], [0], [z]])
 
     def getAverageVelocity(self, cp2, lift_idx):
         cps1 = np.array([[0], [0], [0]])
         cps2 = np.array([[0], [0], [0]])
 
         for i in range(4):
-            if i == 0 or i == 3:
-                v_OG = np.array([[-1, 0], [0, 0], [0, 1]]) @ self.legs[i].vec_OG
-            else:
-                v_OG = np.array([[1, 0], [0, 0], [0, 1]]) @ self.legs[i].vec_OG
+            v_OG = self.transformLF2BF(i, self.legs[i].vec_OG)
 
             cp = self.Position + self.legs_offset[i] + v_OG
             if i != lift_idx:
@@ -430,9 +492,11 @@ class Corgi:
                     sign = 1
                 else:
                     sign = -1
-                angle_ = sign * np.arccos(
-                    (F_.T @ l_) / (np.linalg.norm(F_) * np.linalg.norm(l_))
-                )
+
+                if abs((F_.T @ l_) / (np.linalg.norm(F_) * np.linalg.norm(l_)) - 1) < 0.0001:
+                    angle_ = np.array([[0]])
+                else:
+                    angle_ = sign * np.arccos((F_.T @ l_) / (np.linalg.norm(F_) * np.linalg.norm(l_)))
                 stab_ = angle_ * np.linalg.norm(d_) * np.linalg.norm(F_)
                 stability_idxs.append(stab_[0, 0])
             stability_idx = min(stability_idxs)
@@ -461,11 +525,7 @@ class Corgi:
                 v_OG = np.array([[-1, 0], [0, 0], [0, 1]]) @ lf_OG
             else:
                 v_OG = np.array([[1, 0], [0, 0], [0, 1]]) @ lf_OG
-            coms_ += self.m_leg * (
-                self.Position
-                + self.legs_offset[i]
-                + (rm_ / np.linalg.norm(v_OG)) * v_OG
-            )
+            coms_ += self.m_leg * (self.Position + self.legs_offset[i] + (rm_ / np.linalg.norm(v_OG)) * v_OG)
         coms_ += self.m_body * self.Position
         coms_ = coms_ / 4 * self.m
         return coms_
@@ -519,9 +579,7 @@ class Corgi:
                     v_OG = np.array([[1, 0], [0, 0], [0, 1]]) @ lf_OG
                 p_G = p_hip[i] + v_OG
 
-                self.vs_fhs[i].set_data(
-                    [p_hip[i][0, 0], p_G[0, 0]], [p_hip[i][1, 0], p_G[1, 0]]
-                )
+                self.vs_fhs[i].set_data([p_hip[i][0, 0], p_G[0, 0]], [p_hip[i][1, 0], p_G[1, 0]])
                 self.vs_fhs[i].set_3d_properties([p_hip[i][2, 0], p_G[2, 0]])
 
                 if abs(p_G[2, 0]) < 0.001:
@@ -555,22 +613,20 @@ class Corgi:
         frame_count = round(self.Trajectory[-1][0] * self.animate_fps)
         print("Frame interval count:", frame_interval, frame_count)
 
-        fig = plt.figure(figsize=(16, 18), dpi=50)
+        fig = plt.figure(figsize=(16, 18), dpi=100)
         # self.ax = Axes3D(fig)
         # fig.add_axes(self.ax)
         self.ax1 = fig.add_subplot(2, 1, 1, projection="3d")
         self.ax1.set_xlabel("X")
         self.ax1.set_ylabel("Y")
         self.ax1.set_zlabel("Z")
-        self.ax1.axes.set_xlim3d([-0.25, 1.75])
-        self.ax1.axes.set_ylim3d([-1, 1])
+        self.ax1.axes.set_xlim3d([-0.2, 1.2])
+        self.ax1.axes.set_ylim3d([-0.5, 0.5])
         self.ax1.axes.set_zlim3d([0, 0.8])
 
         self.vs_com = self.ax1.plot([], [], [], "o", color=color_body[1])[0]
         for i in range(4):
-            self.vs_fhs.append(
-                self.ax1.plot([], [], [], "o-", color=color_modlist[i])[0]
-            )
+            self.vs_fhs.append(self.ax1.plot([], [], [], "o-", color=color_modlist[i])[0])
         self.vs_sup_polygon = self.ax1.plot([], [], [], "o-", color=color_body[1])[0]
         self.vs_com_proj = self.ax1.plot([], [], [], "D", color="orange")[0]
 
@@ -590,7 +646,7 @@ class Corgi:
             init_func=self.resetVisualize(),
         )
 
-        # ani.save("animation.mp4")
+        ani.save("bezier.mp4", fps=self.animate_fps)
         plt.grid()
         plt.show()
 
