@@ -181,9 +181,9 @@ class Corgi:
         self.cpg = cpg
         self.mode = MODE_WALK
         self.step_length = 0.2
-        self.step_height = 0.4
+        self.step_height = 0.1
         # swing_time = step_length/heading_velocity
-        self.swing_time = 0.5
+        self.swing_time = 0.6
         self.stance_height = 0.2
         self.average_vel = 0
         self.total_time = 10
@@ -264,7 +264,7 @@ class Corgi:
         print("Time Elapsed = ", time.time() - t)
         print("iter_t = ", self.iter_t)
 
-    def move(self):
+    def move(self, swing_mode="Bezier"):
         prev_contact = [False, False, False, False]
         t_sw = 0
         quadratic_config = []
@@ -290,35 +290,38 @@ class Corgi:
                         print("Lift ", i, "\n---")
                         liftoff_leg = i
                         quadratic_config = self.getQuadraticTrajectory(i)
-                        bezier_config = self.getBezierTrajectory(i)
+                        bezier_config = self.getBezierTrajectory(
+                            i, bezier_profile=[0.08, 0.01, self.step_length, 0.08, -0.04, 0.08, -0.04]
+                        )
                         self.average_vel = self.getAverageVelocity(quadratic_config[1], i)[0, 0]
                         prev_contact = self.cpg.contact.copy()
                         self.legs[i].resetDynamicState()
 
                     self.legs[i].updateDynamicState(self.dt)
-                    # sp = self.getQuadraticSwingPoint(
-                    #     t_sw, quadratic_config[0], quadratic_config[2], quadratic_config[3]
-                    # )
-                    sp = self.getBezierSwingPoint(t_sw, bezier_config)
-                    # print("sp", sp)
+                    if swing_mode == "Bezier":
+                        sp = self.getBezierSwingPoint(t_sw, bezier_config)
+                    elif swing_mode == "Quadratic":
+                        sp = self.getQuadraticSwingPoint(
+                            t_sw, quadratic_config[0], quadratic_config[2], quadratic_config[3]
+                        )
+
                     bf_sp = sp - self.Position - self.legs_offset[i]
                     lf_sp = self.transformBF2LF(i, bf_sp)
-
-                    F_fl, T_fl = self.legs[i].getSwingLegInvDynamics()
-                    T_ffl = np.cross(self.legs_offset[i].T, F_fl.T).T
                     self.legs[i].moveSwing(lf_sp)
 
-            Fr_ = np.array([[0], [0], [-9.81 * self.m_body]])
+                    F_fl, T_fl = self.legs[i].getSwingLegInvDynamics()
+                    # Torque Cause by Swinging Force
+                    T_ffl = np.cross(self.legs_offset[i].T, F_fl.T).T
+                    tau_RL = lt.getTauRL(np.array([[F_fl], [T_fl]]), self.legs[i].state_tb[0, 0])
+
+            """ Fr_ = np.array([[0], [0], [-9.81 * self.m_body]])
             Nr_ = np.array([[0], [0], [0]])
             s2 = self.evaluateFAStability(Fr_, Nr_)
-            # print("s1", self.evaluateFAStability(Fr_, Nr_))
+            """
 
             Fr_ = np.array([[0], [0], [-9.81 * self.m_body]]) + F_fl
-            # print("F_fl", F_fl)
             Nr_ = np.array([[0], [0], [0]]) + T_fl + T_ffl
             s = self.evaluateFAStability(Fr_, Nr_)
-            # print("s2", s)
-            # print("Diff between Fight leg consider", s2 - s)
 
             self.performances.append([liftoff_leg, s])
             self.t_list.append(self.iter_t)
@@ -327,9 +330,6 @@ class Corgi:
             self.iter_t += self.dt
             t_sw += self.dt
             self.loop_cnt += 1
-
-        # plt.plot(self.t_list, self.performance)
-        # plt.show()
 
     def transformBF2LF(self, idx, p_bf):
         if idx == 0 or idx == 3:
@@ -366,7 +366,7 @@ class Corgi:
         dz = cff_y * t * (t - self.swing_time)
         return cp1 + np.array([[dx], [0], [dz]])
 
-    def getBezierTrajectory(self, leg_idx, point_num=100):
+    def getBezierTrajectory(self, leg_idx, bezier_profile, point_num=100):
         leg = self.legs[leg_idx]
         v_OG = self.transformLF2BF(leg_idx, leg.vec_OG)
 
@@ -376,24 +376,21 @@ class Corgi:
         cp2 = np.array([leg_cp2[0, 0], leg_cp2[2, 0]])
 
         # 12 Control Points of bezier curves [REF]
-        # h = 0.08
-        h = 0.4
+        h, dh, L, dL1, dL2, dL3, dL4 = bezier_profile
+        """ h = 0.08
+        # h = 0.4
         dh = 0.01
         L = self.step_length
-        dL1 = 0.1
-        dL2 = 0.1
-        dL3 = 0.1
-        dL4 = 0.1
 
-        dL1 = 0.15
-        dL2 = 0.01
-        dL3 = 0.15
-        dL4 = 0.05
+        dL1 = 0.08
+        dL2 = -0.04
+        dL3 = 0.08
+        dL4 = -0.04
 
-        dL1 = 0.2
-        dL2 = -0.05
-        dL3 = 0.2
-        dL4 = -0.05
+        # dL1 = 0.2
+        # dL2 = -0.05
+        # dL3 = 0.2
+        # dL4 = -0.05 """
 
         c0 = cp1
         c1 = c0 - np.array([dL1, 0])
@@ -411,10 +408,7 @@ class Corgi:
 
         t_points = np.linspace(0, 1, point_num)
         curve = Bezier.Curve(t_points, c_set)
-        """ plt.plot(curve[:, 0], curve[:, 1])
-        plt.plot(c_set[:, 0], c_set[:, 1], "ro:")
-        plt.gca().set_aspect("equal", adjustable="box")
-        plt.show() """
+
         return [t_points, curve, leg_cp1]
 
     def getBezierSwingPoint(self, t, config):
@@ -529,13 +523,12 @@ class Corgi:
             leg_state.append(leg.state_phi.reshape(1, 2).tolist()[0])
 
         leg_state.append(copy.copy(self.cpg.contact))
-        # print("[rec] ", self.cpg.contact)
         self.Trajectory.append(leg_state)
-        # leg_state = [t, [px, py, pz], [MA_t, MA_b], [MA_phiR, MA_phiL],
-        #                               [MB_t, MB_b], [MB_phiR, MB_phiL],
-        #                               [MC_t, MC_b], [MC_phiR, MC_phiL],
-        #                               [MD_t, MD_b], [MD_phiR, MD_phiL],
-        #                               [MOD_A_contact, MOD_B_contact, MOD_C_contact, MOD_D_contact]]
+        """ leg_state = [t, [px, py, pz], [MA_t, MA_b], [MA_phiR, MA_phiL],
+                                      [MB_t, MB_b], [MB_phiR, MB_phiL],
+                                      [MC_t, MC_b], [MC_phiR, MC_phiL],
+                                      [MD_t, MD_b], [MD_phiR, MD_phiL],
+                                      [MOD_A_contact, MOD_B_contact, MOD_C_contact, MOD_D_contact]] """
         pass
 
     def updateAnimation(self, frame_cnt):
@@ -569,7 +562,6 @@ class Corgi:
             for i in range(4):
                 midx = 2 * i + 3
                 phiR_, phiL_ = self.Trajectory[idx][midx]
-                # lf_OG = vec_OG(phiR_, phiL_)
                 lf_OG = lk.FowardKinematics(np.array([[phiR_], [phiL_]]), "phi")
                 if i == 0 or i == 3:
                     v_OG = np.array([[-1, 0], [0, 0], [0, 1]]) @ lf_OG
@@ -612,6 +604,7 @@ class Corgi:
         print("Frame interval count:", frame_interval, frame_count)
 
         fig = plt.figure(figsize=(16, 18), dpi=50)
+
         # self.ax = Axes3D(fig)
         # fig.add_axes(self.ax)
         self.ax1 = fig.add_subplot(2, 1, 1, projection="3d")
@@ -621,6 +614,10 @@ class Corgi:
         self.ax1.axes.set_xlim3d([-0.2, 1.2])
         self.ax1.axes.set_ylim3d([-0.5, 0.5])
         self.ax1.axes.set_zlim3d([0, 0.8])
+        sf_x = np.arange(-1, 5, 0.25)
+        sf_y = np.arange(-1, 1, 0.25)
+        X, Y = np.meshgrid(sf_x, sf_y)
+        self.ax1.plot_surface(X, Y, 0 * X, alpha=0.1, color="gray")
 
         self.vs_com = self.ax1.plot([], [], [], "o", color=color_body[1])[0]
         for i in range(4):
