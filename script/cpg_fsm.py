@@ -79,6 +79,7 @@ class LinkLeg:
         self.vec_OG = lk.FowardKinematics(tb)
         # self.vec_OG = vec_OG(self.state_phi[0, 0], self.state_phi[1, 0])
         self.len_OG = np.linalg.norm(self.vec_OG)
+        self.LDM = sm.SimplifiedModel(data_analysis=False)
 
         # quadratic Trajectory coeff
         self.swingTrajectory = [0, 0, 0]
@@ -162,7 +163,7 @@ class LinkLeg:
 
     def getSwingLegInvDynamics(self):
         # LDM.inverseLinkLegODE
-        F_rm, T_b = LDM.inverseLinkLegODE(self.cur_state_tb)
+        F_rm, T_b = self.LDM.inverseLinkLegODE(self.cur_state_tb)
         F_x = -1 * abs(F_rm) * np.sin(self.cur_state_tb[0])
         F_y = -1 * abs(F_rm) * np.cos(self.cur_state_tb[3])
 
@@ -189,6 +190,7 @@ class Corgi:
         self.total_time = 10
 
         # Robot initial state (in Theta-Beta Representation)
+        # self.initial_position = np.array([[0], [0], [0.1]])
         self.initial_position = np.array([[0], [0], [0.1]])
         self.Position = self.initial_position
         self.Orientation = np.array([0, 0, 0, 1])  # xyzw
@@ -225,11 +227,18 @@ class Corgi:
 
         self.iter_t = 0
         self.loop_cnt = 0
-        self.swing_cff_x = 0  # Coefficient of Swing phase quadratic trajectory
-        self.swing_cff_y = 0  # Coefficient of Swing phase quadratic trajectory
         self.Trajectory = []
         self.performances = []
         self.t_list = []
+
+        # Optimization
+        self.cost = 0
+        self.weight_s = 0.01
+        self.weight_st = 1
+        self.weight_u = 1
+        self.weight_R1 = 1
+        self.weight_R2 = 1
+        self.weight_L1 = 1
 
         # Animation
         self.animate_fps = 30
@@ -262,7 +271,7 @@ class Corgi:
             self.iter_t += self.dt
 
         print("Time Elapsed = ", time.time() - t)
-        print("iter_t = ", self.iter_t)
+        # print("iter_t = ", self.iter_t)
 
     def move(self, swing_mode="Bezier"):
         prev_contact = [False, False, False, False]
@@ -273,6 +282,7 @@ class Corgi:
         F_fl = np.array([[0], [0], [0]])  # Flight Leg Force
         T_ffl = np.array([[0], [0], [0]])
         T_fl = np.array([[0], [0], [0]])  # Flight Leg Torque
+        s = 0  # FA stability
 
         while self.loop_cnt < self.total_time * self.frequency:
             self.cpg.update(self.mode, self.swing_time)
@@ -287,12 +297,14 @@ class Corgi:
                     if self.cpg.contact != prev_contact:
                         # Plan lift off trajectory
                         t_sw = self.dt
-                        print("Lift ", i, "\n---")
+                        """ print("Lift ", i, "\n---") """
                         liftoff_leg = i
                         quadratic_config = self.getQuadraticTrajectory(i)
                         bezier_config = self.getBezierTrajectory(
                             i, bezier_profile=[0.08, 0.01, self.step_length, 0.08, -0.04, 0.08, -0.04]
                         )
+                        # print(self.bezierValidate(i, self.Position + self.legs_offset[i], bezier_config[1]))
+
                         self.average_vel = self.getAverageVelocity(quadratic_config[1], i)[0, 0]
                         prev_contact = self.cpg.contact.copy()
                         self.legs[i].resetDynamicState()
@@ -323,13 +335,18 @@ class Corgi:
             Nr_ = np.array([[0], [0], [0]]) + T_fl + T_ffl
             s = self.evaluateFAStability(Fr_, Nr_)
 
-            self.performances.append([liftoff_leg, s])
+            self.cost += (self.weight_s * -s + self.weight_u * (tau_RL.T @ tau_RL)[0, 0]) * self.dt
+
+            # self.performances.append([liftoff_leg, s])
+            self.performances.append([liftoff_leg, self.cost])
             self.t_list.append(self.iter_t)
 
             self.recordTrajectory()
             self.iter_t += self.dt
             t_sw += self.dt
             self.loop_cnt += 1
+
+        self.cost += self.weight_st * s
 
     def transformBF2LF(self, idx, p_bf):
         if idx == 0 or idx == 3:
@@ -377,20 +394,6 @@ class Corgi:
 
         # 12 Control Points of bezier curves [REF]
         h, dh, L, dL1, dL2, dL3, dL4 = bezier_profile
-        """ h = 0.08
-        # h = 0.4
-        dh = 0.01
-        L = self.step_length
-
-        dL1 = 0.08
-        dL2 = -0.04
-        dL3 = 0.08
-        dL4 = -0.04
-
-        # dL1 = 0.2
-        # dL2 = -0.05
-        # dL3 = 0.2
-        # dL4 = -0.05 """
 
         c0 = cp1
         c1 = c0 - np.array([dL1, 0])
@@ -416,9 +419,43 @@ class Corgi:
         t_ = t / self.swing_time
         x = np.interp(t_, ts, curve[:, 0])
         z = np.interp(t_, ts, curve[:, 1])
-        # print("cp1", cp1.T)
         # print("swp", (cp1 + np.array([[x], [0], [z]])).T)
-        return np.array([[x], [0], [z]])
+        return np.array([[x], [cp1[1, 0]], [z]])
+
+    def bezierValidate(self, idx, p_hip, curve):
+        valid = True
+        p_c = p_hip - self.legs_offset[idx]
+        for p in curve:
+            p_ = np.array([[p[0]], [p_hip[1, 0]], [p[1]]])
+            """ print("p_hip", p_hip)
+            print("p_", p_)
+            print("p_c", p_c)
+            print("offset", self.legs_offset[idx]) """
+            d = np.linalg.norm(p_ - p_hip)
+            if d < 0.10031048 or d > 0.34290456:
+                valid = False
+                print("length validation")
+            if idx == 0 or idx == 1:
+                if p_[0, 0] < p_c[0, 0]:
+                    valid = False
+                    print("mid validation")
+                    break
+            else:
+                if p_[0, 0] > p_c[0, 0]:
+                    valid = False
+                    print("mid validation")
+                    break
+        return valid
+
+    def getPotentialCost(self, idx, p_hip, curve):
+        for p in curve:
+            p_ = np.array([[p[0]], [p_hip[1, 0]], [p[1]]])
+            d = np.linalg.norm(p_ - p_hip)
+            if d < 0.10031048 or d > 0.34290456:
+                valid = False
+                print("length validation")
+            
+        pass
 
     def getAverageVelocity(self, cp2, lift_idx):
         cps1 = np.array([[0], [0], [0]])
@@ -532,7 +569,7 @@ class Corgi:
         pass
 
     def updateAnimation(self, frame_cnt):
-        idx = round(frame_cnt * (loop_freq / self.animate_fps))
+        idx = round(frame_cnt * (self.frequency / self.animate_fps))
 
         if idx <= len(self.Trajectory):
             p_com = self.Trajectory[idx][1]
@@ -654,6 +691,6 @@ if __name__ == "__main__":
     CORGI = Corgi(loop_freq, FSM)
     LDM = sm.SimplifiedModel(data_analysis=False)
 
-    CORGI.standUp(0.05)
+    CORGI.standUp(0.8)
     CORGI.move()
     CORGI.visualize()
