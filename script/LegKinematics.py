@@ -145,7 +145,7 @@ def InverseKinematics(point_G, current_tb=np.array([[np.radians(17)], [0]]), tol
 def InverseKinematicsPoly(point_G):
     desired_length = np.linalg.norm(point_G)
     # Solve theta correspond to desired length
-    if desired_length > 0.3428 or desired_length < 0.1:
+    if desired_length > 0.3428 or desired_length < 0.098:
         raise ValueError("Desired length exceed ", str(desired_length), "Point desired", str(point_G.T))
     else:
         p_fit_ = [
