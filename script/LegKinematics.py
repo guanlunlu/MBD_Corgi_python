@@ -26,9 +26,7 @@ l_BF = 0
 def FowardKinematics(state, state_mode="tb"):
     # state = np.array([[phiR], [phiL]]) or np.array([[theta], [beta]])
     if state_mode == "phi":
-        state_tb = 1 / 2 * np.array([[1, -1], [1, 1]]) @ state + np.array(
-            [[1], [0]]
-        ) * np.deg2rad(17)
+        state_tb = 1 / 2 * np.array([[1, -1], [1, 1]]) @ state + np.array([[1], [0]]) * np.deg2rad(17)
     else:
         state_tb = state
 
@@ -67,9 +65,7 @@ def FowardKinematics(state, state_mode="tb"):
     # alpha_4 defined as angle BCF
     alpha_4 = np.arccos(l3 / (2 * R)) + np.arccos(l7 / (2 * R))
     # Rotate CB to CF direction
-    rot_alpha_4 = np.array(
-        [[np.cos(alpha_4), -np.sin(alpha_4)], [np.sin(alpha_4), np.cos(alpha_4)]]
-    )
+    rot_alpha_4 = np.array([[np.cos(alpha_4), -np.sin(alpha_4)], [np.sin(alpha_4), np.cos(alpha_4)]])
 
     l_BF = np.sqrt(l3**2 + l7**2 - 2 * l3 * l7 * np.cos(alpha_4))
     l_CB = np.linalg.norm(CB)
@@ -115,9 +111,7 @@ def FowardKinematics(state, state_mode="tb"):
     return OG
 
 
-def InverseKinematics(
-    point_G, current_tb=np.array([[np.radians(17)], [0]]), tol=0.0001, p_gain=10
-):
+def InverseKinematics(point_G, current_tb=np.array([[np.radians(17)], [0]]), tol=0.0001, p_gain=10):
     desired_length = np.linalg.norm(point_G)
     # Solve theta correspond to desired length
     if desired_length > 0.3428:
@@ -152,7 +146,7 @@ def InverseKinematicsPoly(point_G):
     desired_length = np.linalg.norm(point_G)
     # Solve theta correspond to desired length
     if desired_length > 0.3428 or desired_length < 0.1:
-        raise ValueError("Desired length exceed ", str(desired_length))
+        raise ValueError("Desired length exceed ", str(desired_length), "Point desired", str(point_G.T))
     else:
         p_fit_ = [
             4.11916505e05,
