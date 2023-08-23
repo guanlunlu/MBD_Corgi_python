@@ -114,7 +114,6 @@ class LinkLeg:
 
         # get theta_k from inverse kinematics approx...
         theta_k = lk.InverseKinematicsPoly(np.array([[0], [-leglen_k]]))[0, 0]
-
         dbeta_k = dbeta_sign * np.arccos((vec_OG_k.T @ self.vec_OG) / (self.len_OG * leglen_k))[0, 0]
 
         # Update
@@ -130,15 +129,6 @@ class LinkLeg:
         tb_ = lk.InverseKinematicsPoly(sp)
         theta = tb_[0, 0]
         beta = tb_[1, 0]
-
-        """ u_sp = sp / l_des
-        beta = np.arccos(-u_sp.T @ np.array([[0], [1]]))[0, 0]
-        if sp[0, 0] <= 0:
-            beta_sign = 1
-        else:
-            beta_sign = -1
-        beta = abs(beta) * beta_sign """
-
         self.updateState(np.array([[theta], [beta]]))
         self.vec_OG = sp
         self.len_OG = l_des
@@ -239,6 +229,7 @@ class Corgi:
         self.weight_R1 = 1
         self.weight_R2 = 1
         self.weight_L1 = 1
+        self.pot_wall_thres = 0.01
 
         # Animation
         self.animate_fps = 30
@@ -303,8 +294,6 @@ class Corgi:
                         bezier_config = self.getBezierTrajectory(
                             i, bezier_profile=[0.08, 0.01, self.step_length, 0.08, -0.04, 0.08, -0.04]
                         )
-                        # print(self.bezierValidate(i, self.Position + self.legs_offset[i], bezier_config[1]))
-
                         self.average_vel = self.getAverageVelocity(quadratic_config[1], i)[0, 0]
                         prev_contact = self.cpg.contact.copy()
                         self.legs[i].resetDynamicState()
@@ -316,7 +305,6 @@ class Corgi:
                         sp = self.getQuadraticSwingPoint(
                             t_sw, quadratic_config[0], quadratic_config[2], quadratic_config[3]
                         )
-
                     bf_sp = sp - self.Position - self.legs_offset[i]
                     lf_sp = self.transformBF2LF(i, bf_sp)
                     self.legs[i].moveSwing(lf_sp)
@@ -326,15 +314,11 @@ class Corgi:
                     T_ffl = np.cross(self.legs_offset[i].T, F_fl.T).T
                     tau_RL = lt.getTauRL(np.array([[F_fl], [T_fl]]), self.legs[i].state_tb[0, 0])
 
-            """ Fr_ = np.array([[0], [0], [-9.81 * self.m_body]])
-            Nr_ = np.array([[0], [0], [0]])
-            s2 = self.evaluateFAStability(Fr_, Nr_)
-            """
-
             Fr_ = np.array([[0], [0], [-9.81 * self.m_body]]) + F_fl
             Nr_ = np.array([[0], [0], [0]]) + T_fl + T_ffl
             s = self.evaluateFAStability(Fr_, Nr_)
 
+            # Integrate Cost for optimization
             self.cost += (self.weight_s * -s + self.weight_u * (tau_RL.T @ tau_RL)[0, 0]) * self.dt
 
             # self.performances.append([liftoff_leg, s])
@@ -346,6 +330,7 @@ class Corgi:
             t_sw += self.dt
             self.loop_cnt += 1
 
+        # Integrate terminal cost
         self.cost += self.weight_st * s
 
     def transformBF2LF(self, idx, p_bf):
@@ -447,15 +432,39 @@ class Corgi:
                     break
         return valid
 
-    def getPotentialCost(self, idx, p_hip, curve):
-        for p in curve:
-            p_ = np.array([[p[0]], [p_hip[1, 0]], [p[1]]])
-            d = np.linalg.norm(p_ - p_hip)
-            if d < 0.10031048 or d > 0.34290456:
-                valid = False
-                print("length validation")
+    def getPotentialCostR1(self, R_bound, wf_sp, p_hip):
+        r_ = np.linalg.norm(wf_sp - p_hip)
+        Q_ = R_bound + self.pot_wall_thres  # potential effective outer ring
+        if r_ <= Q_:
+            U = 0.5 * self.weight_R1 * (1 / r_ - 1 / Q_) ** 2
+        else:
+            U = 0
+        return U
+
+    def getPotentialCostR2(self, R_bound, wf_sp, p_hip):
+        r_ = np.linalg.norm(wf_sp - p_hip)
+        D_ = abs(r_ - R_bound)
+        D_min_ = 0.0001
+        if D_ < D_min_:
+            D_ = D_min_
+
+        Q_ = self.pot_wall_thres
+        if r_ < R_bound:
+            if D_ <= self.pot_wall_thres:
+                U = 0.5 * self.weight_R2 * (1 / D_ - 1 / Q_) ** 2
+            else:
+                U = 0
+        else:
+            U = 0.5 * self.weight_R2 * (1 / D_min_ - 1 / Q_) ** 2
+
+        return U
+    
+    def getPotentialCostL1(self, idx, p_com, wf_sp):
+        if idx == 0 or idx == 1:
             
-        pass
+            pass
+        else:
+            pass
 
     def getAverageVelocity(self, cp2, lift_idx):
         cps1 = np.array([[0], [0], [0]])
