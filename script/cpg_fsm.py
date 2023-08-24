@@ -744,18 +744,24 @@ class Corgi:
         plt.grid()
         plt.show()
 
-    def exportCSV(self, filepath="./csv_trajectory/output.csv"):
+    def exportCSV(self, filepath="./csv_trajectory/output.csv", mode="sbrio"):
         with open(filepath, "w", encoding="UTF8", newline="") as f:
             writer = csv.writer(f)
             for i in self.Trajectory:
-                A_phiR = i[3][0]
-                A_phiL = i[3][1]
+                if mode == "sbrio":
+                    A_phiRL = lt.getPhiRL(np.array([[i[2][0]], [-i[2][1]]]))
+                    D_phiRL = lt.getPhiRL(np.array([[i[8][0]], [-i[8][1]]]))
+                else:
+                    A_phiRL = lt.getPhiRL(np.array([[i[2][0]], [i[2][1]]]))
+                    D_phiRL = lt.getPhiRL(np.array([[i[8][0]], [i[8][1]]]))
+                A_phiR = A_phiRL[0, 0]
+                A_phiL = A_phiRL[1, 0]
                 B_phiR = i[5][0]
                 B_phiL = i[5][1]
                 C_phiR = i[7][0]
                 C_phiL = i[7][1]
-                D_phiR = i[9][0]
-                D_phiL = i[9][1]
+                D_phiR = D_phiRL[0, 0]
+                D_phiL = D_phiRL[1, 0]
                 A_contact = i[10][0]
                 B_contact = i[10][1]
                 C_contact = i[10][2]
@@ -780,7 +786,7 @@ class Corgi:
 if __name__ == "__main__":
     print("CPG Started")
 
-    loop_freq = 100  # Hz
+    loop_freq = 1000  # Hz
     FSM = FiniteStateMachine(loop_freq)
     CORGI = Corgi(loop_freq, FSM)
     LDM = sm.SimplifiedModel(data_analysis=False)
