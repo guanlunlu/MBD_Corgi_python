@@ -102,6 +102,12 @@ class LinkLeg:
         # self.vec_OG = vec_OG(self.state_phi[0], self.state_phi[1])
         # self.len_OG = np.linalg.norm(self.vec_OG)
 
+    def updateState_VOG(self, tb):
+        self.state_tb = tb
+        self.state_phi = lt.getPhiRL(tb)
+        self.vec_OG = lk.FowardKinematics(tb)
+        self.len_OG = np.linalg.norm(self.vec_OG)
+
     def moveStance(self, vel):
         if self.idx == 0 or self.idx == 3:
             vel *= -1
@@ -127,7 +133,7 @@ class LinkLeg:
     def moveSwing(self, sp):
         # move leg to next swingpoint
         l_des = np.linalg.norm(sp)
-        tb_ = lk.InverseKinematicsPoly(sp)
+        tb_ = lk.InverseKinematicsNC(sp)
         theta = tb_[0, 0]
         beta = tb_[1, 0]
         self.updateState(np.array([[theta], [beta]]))
@@ -140,7 +146,7 @@ class LinkLeg:
         self.cur_state_tb[2] = (self.cur_state_tb[1] - self.prev_state_tb[1]) / dt  # ddtheta
         self.cur_state_tb[3] = self.state_tb[1, 0]  # beta
         self.cur_state_tb[4] = (self.cur_state_tb[3] - self.prev_state_tb[3]) / dt  # dbeta
-        self.cur_state_tb[5] = (self.cur_state_tb[4] - self.prev_state_tb[4]) / dt
+        self.cur_state_tb[5] = (self.cur_state_tb[4] - self.prev_state_tb[4]) / dt  # ddtheta
         self.prev_state_tb = self.cur_state_tb.copy()
 
     def resetDynamicState(self):
@@ -175,11 +181,11 @@ class Corgi:
         self.step_length = 0.2
         self.step_height = 0.05
         # swing_time = step_length/heading_velocity
-        self.swing_time = 0.4
+        self.swing_time = 0.6
         self.stance_height = 0.2
         self.average_vel = 0
         self.total_time = 10
-        self.total_cycle = 4 * 4
+        self.total_cycle = 36
 
         # Robot initial state (in Theta-Beta Representation)
         self.initial_position = np.array([[0], [0], [0.1]])
@@ -227,11 +233,13 @@ class Corgi:
         self.cost = 0
         self.weight_s = 1
         self.weight_st = 0.1
-        self.weight_u = 1
+        self.weight_u = 0.5
         self.weight_R1 = 5
         self.weight_R2 = 5
         self.weight_L1 = 5
         self.pot_wall_thres = 0.01
+
+        self.lift_state = []
 
         # Animation
         self.animate_fps = 60
@@ -266,6 +274,13 @@ class Corgi:
         # print("Time Elapsed = ", time.time() - t)
         # print("iter_t = ", self.iter_t)
 
+    def setInitPhase(self, A_tb, B_tb, C_tb, D_tb):
+        self.Position = np.array([[0], [0], [self.stance_height]])
+        self.leg_A.updateState_VOG(A_tb)
+        self.leg_B.updateState_VOG(B_tb)
+        self.leg_C.updateState_VOG(C_tb)
+        self.leg_D.updateState_VOG(D_tb)
+
     def move(self, swing_mode="Bezier", swing_profile="default"):
         prev_contact = [False, False, False, False]
         t_sw = 0
@@ -291,20 +306,18 @@ class Corgi:
                     if self.cpg.contact != prev_contact:
                         # Plan lift off trajectory
                         t_sw = self.dt
-                        # print("Lift ", i, "\n---")
+                        # print("Lift ", i)
+                        # print("--")
                         # print("lp_hip", self.getHipPosition(i, self.Position).T)
                         liftoff_leg = i
                         # quadratic_config = self.getQuadraticTrajectory(i)
                         # self.average_vel = self.getAverageVelocity(quadratic_config[1], i)[0, 0]
+                        self.lift_state.append([i, self.legs[i].state_tb, self.legs[i].vec_OG])
 
                         if isinstance(swing_profile, str):
                             bezier_config = self.getBezierTrajectory(
                                 i, bezier_profile=[0.08, 0.01, 0.08, -0.04, 0.08, -0.04]
                             )
-                            # bezier_config = self.getBezierTrajectory(
-                            #     i, bezier_profile=[0.06, 0.01, 0.1, -0.04, 0.1, -0.04]
-                            # )
-
                         else:
                             bez_profile = swing_profile[i]
                             bezier_config = self.getBezierTrajectory(i, bezier_profile=bez_profile)
@@ -330,21 +343,19 @@ class Corgi:
                     try:
                         self.legs[i].moveSwing(lf_sp)
                     except:
+                        print("failed at", i)
                         print("p_hip", self.getHipPosition(i, self.Position).T)
                         print("swing_point", swing_point.T)
+                        print("fail profile", swing_profile[i])
                         self.legs[i].moveSwing(lf_sp)
 
                     F_fl, T_fl = self.legs[i].getSwingLegInvDynamics()
                     # Torque Cause by Swinging Force
                     T_ffl = np.cross(self.legs_offset[i].T, F_fl.T).T
                     tau_RL = lt.getTauRL(np.array([[F_fl], [T_fl]]), self.legs[i].state_tb[0, 0])
-                    # CR1 = self.getPotentialCostR1(0.1, swing_point, self.getHipPosition(i, self.Position))
-                    # CR2 = self.getPotentialCostR2(0.34290456, swing_point, self.getHipPosition(i, self.Position))
-                    # CL1 = self.getPotentialCostL1(i, self.Position, swing_point)
 
             if self.cycle_cnt > self.total_cycle:
                 self.cost += self.weight_st * s
-                print("cost", self.cost)
                 break
 
             Fr_ = np.array([[0], [0], [-9.81 * self.m_body]]) + F_fl
@@ -353,7 +364,6 @@ class Corgi:
 
             # Integrate Cost for optimization
             self.cost += (self.weight_s * -s + self.weight_u * (tau_RL.T @ tau_RL)[0, 0]) * self.dt
-            # self.cost += (CR1 + CR2 + CL1) * self.dt
 
             self.performances.append([liftoff_leg, s])
             # self.performances.append([liftoff_leg, self.cost])
@@ -673,7 +683,7 @@ class Corgi:
                 self.vs_fhs[i].set_data([p_hip[i][0, 0], p_G[0, 0]], [p_hip[i][1, 0], p_G[1, 0]])
                 self.vs_fhs[i].set_3d_properties([p_hip[i][2, 0], p_G[2, 0]])
 
-                if abs(p_G[2, 0]) < 0.001:
+                if abs(p_G[2, 0]) < 0.01:
                     sup_x.append(p_G[0, 0])
                     sup_y.append(p_G[1, 0])
                     sup_z.append(p_G[2, 0])
@@ -786,12 +796,85 @@ class Corgi:
 if __name__ == "__main__":
     print("CPG Started")
 
-    loop_freq = 1000  # Hz
+    loop_freq = 40  # Hz
     FSM = FiniteStateMachine(loop_freq)
     CORGI = Corgi(loop_freq, FSM)
     LDM = sm.SimplifiedModel(data_analysis=False)
 
-    CORGI.standUp(0.05)
-    CORGI.move()
+    bp = np.array(
+        [
+            0.08463458910490698,
+            0.0196838244392898,
+            0.01850744944689882,
+            0.024529399966100568,
+            0.018630222787415912,
+            0.06339289353026645,
+            0.051620993332801485,
+            0.01843050224710556,
+            0.014289622144240018,
+            0.0809231695450141,
+            0.014700050301560783,
+            0.05531859824155916,
+            0.08295214364925285,
+            6.256941317328349e-05,
+            0.012163903292402523,
+            0.029565047540828254,
+            0.04646442058272693,
+            0.05893750318143512,
+            0.050408196289893514,
+            0.0009569116678044009,
+            0.019252342255391963,
+            0.07011486791304086,
+            0.02150071401217432,
+            0.10770712740120203,
+        ]
+    )
+    # fmt:off
+    bp = [ 0.02,  0.01,  0.01,  0.01,  0.03, -0.1,   0.01,  0.01,  0.03,  0.01,  0.03,  0.01,
+           0.02,  0.01,  0.01,  0.01,  0.03, -0.1,   0.02,  0.01,  0.03,  0.01,  0.03,  0.01]
+    bp = [0.02,  0.01,  0.03, -0.1,   0.03, -0.1,   0.02,  0.01,  0.03,  0.01,  0.01,  0.01,
+          0.02,  0.01,  0.03,  0.01,  0.03,  0.01,  0.02,  0.01,  0.03,  0.01,  0.03,  0.01]
+    bp = [ 0.04,  0.02,  0.01,  0.1,   0.01,  0.1,   0.04,  0.,    0.01, -0.1,   0.01,  0.1,
+           0.07,  0.02,  0.01, -0.1,   0.01, -0.1,   0.04,  0.,    0.01, -0.1,   0.01,  0.1 ]
+    bp = [0.04,  0.,    0.01, -0.1,   0.01,  0.1,   0.07,  0.02,  0.01, -0.1,   0.01, -0.1,
+          0.04,  0.,    0.01,  0.1,   0.01, -0.1,   0.04,  0.,    0.01, -0.1,   0.01, -0.1]
+    
+    bp = [ 0.04,  0.01,  0.01,  0.01,  0.03,  0.01,  0.07,  0.01,  0.03,  0.01,  0.01,  0.01,
+           0.04,  0.02,  0.01,  0.01,  0.01,  0.01,  0.05,  0.,    0.03, -0.5,   0.01,  0.01]
+    # fmt:on
+
+    bp = np.array(bp).reshape(4, -1)
+
+    tb = lk.InverseKinematicsPoly(np.array([[0], [-0.2]]))
+    tb_1 = lk.InverseKinematicsPoly(np.array([[0.05], [-0.2]]))
+    tb_2 = lk.InverseKinematicsPoly(np.array([[-0.05], [-0.2]]))
+
+    init_A_tb = tb_1
+    init_B_tb = tb_1
+    init_C_tb = tb_2
+    init_D_tb = tb_2
+
+    CORGI.setInitPhase(init_A_tb, init_B_tb, init_C_tb, init_D_tb)
+    # CORGI.standUp(0.05)
+    CORGI.move(swing_profile=bp)
     CORGI.visualize()
-    CORGI.exportCSV()
+    print(CORGI.cost)
+    CORGI.exportCSV("/home/guanlunlu/corgi_webots/controllers/supervisor/output.csv")
+    """ CORGI.exportCSV("/home/guanlunlu/corgi_webots/controllers/supervisor/output.csv")
+
+    bez_prof_init = np.array(
+        [
+            [0.06, 0.01, 0.15, 0.05, 0.08, 0.06],
+            [0.06, 0.01, 0.15, 0.05, 0.08, 0.06],
+            [0.06, 0.01, 0.08, 0.05, 0.02, 0.1],
+            [0.06, 0.01, 0.08, 0.05, 0.02, 0.1],
+        ]
+    )
+
+    FSM = FiniteStateMachine(loop_freq)
+    CORGI = Corgi(loop_freq, FSM)
+    CORGI.setInitPhase(init_A_tb, init_B_tb, init_C_tb, init_D_tb)
+    CORGI.move(swing_profile=bez_prof_init)
+    # CORGI.move()
+    CORGI.visualize()
+    print(CORGI.cost) """

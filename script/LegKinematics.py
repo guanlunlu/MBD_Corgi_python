@@ -169,3 +169,35 @@ def InverseKinematicsPoly(point_G):
             beta_sign = -1
         beta = abs(beta) * beta_sign
         return np.array([[theta], [beta]])
+
+
+def InverseKinematicsNC(point_G):
+    desired_length = np.linalg.norm(point_G)
+    # Solve theta correspond to desired length
+    d_l = desired_length
+    if desired_length > 0.3428:
+        d_l = 0.3428
+    elif desired_length < 0.098:
+        d_l = 0.1
+
+    p_fit_ = [
+        4.11916505e05,
+        -6.26591689e05,
+        4.03501845e05,
+        -1.42028997e05,
+        2.93956532e04,
+        -3.56716856e03,
+        2.44492931e02,
+        -7.12887643e00,
+    ]
+
+    theta = np.polyval(p_fit_, d_l)
+
+    u_sp = point_G / d_l
+    beta = np.arccos(-u_sp.T @ np.array([[0], [1]]))[0, 0]
+    if point_G[0, 0] <= 0:
+        beta_sign = 1
+    else:
+        beta_sign = -1
+    beta = abs(beta) * beta_sign
+    return np.array([[theta], [beta]])
