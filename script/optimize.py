@@ -15,7 +15,7 @@ class corgiOptimize:
         self.freq = 100
         self.L = 0.2
         self.H_st = 0.2  # stance height
-        self.T_sw = 0.6  # swing time
+        self.T_sw = 0.4  # swing time
         self.px_init = self.L / 4
         self.mx_init = -self.L / 4
 
@@ -28,7 +28,7 @@ class corgiOptimize:
         self.obj_itercnt = 0
 
         # Optimization boundary
-        self.H_b = (0.01, 0.03)
+        self.H_b = (0.05, 0.06)
         self.dH_b = (0.00, 0.02)
         self.L1_b = (0.05, 1)
         self.L2_b = (-0.1, 0.1)
@@ -38,10 +38,10 @@ class corgiOptimize:
         # Optimization initial guess
         self.bp_init_guess = np.array(
             [
-                [0.02, 0.01, 0.06, 0.01, 0.06, 0.01],
-                [0.02, 0.01, 0.06, 0.01, 0.06, 0.01],
-                [0.02, 0.01, 0.06, 0.01, 0.06, 0.01],
-                [0.02, 0.01, 0.06, 0.01, 0.06, 0.01],
+                [0.05, 0.01, 0.1, 0.01, 0.1, 0.01],
+                [0.05, 0.01, 0.1, 0.01, 0.1, 0.01],
+                [0.05, 0.01, 0.1, 0.01, 0.1, 0.01],
+                [0.05, 0.01, 0.1, 0.01, 0.1, 0.01],
             ]
         )
 
@@ -54,7 +54,7 @@ class corgiOptimize:
         self.Cons = [self.innerCons, self.outerCons, self.centerlineCons, self.bezCons, self.velCons]
 
         # Optimization Cost
-        self.C_s = 6
+        self.C_s = 3
         self.C_u = 0.5
         self.opt_result = None
 
@@ -383,6 +383,11 @@ class corgiOptimize:
 
     def objective(self, bezier_profiles):
         bp = bezier_profiles.reshape(4, -1)
+        print(bp[0])
+        print(bp[1])
+        print(bp[2])
+        print(bp[3])
+
         tb_1 = lk.InverseKinematicsPoly(np.array([[self.px_init], [-self.H_st]]))
         tb_2 = lk.InverseKinematicsPoly(np.array([[self.mx_init], [-self.H_st]]))
         init_A_tb = tb_1
@@ -443,9 +448,8 @@ class corgiOptimize:
             self.bp_init_guess.reshape(1, -1),
             method="SLSQP",
             bounds=bnds,
-            tol=0.001,
             constraints=self.Cons,
-            options={"disp": True, "maxiter": 1},
+            options={"disp": True, "maxiter": 100},
         )
         self.plotResult(self.opt_result)
 
@@ -474,17 +478,18 @@ class corgiOptimize:
         nlcs = [nlc1, nlc2, nlc5]
         # nlcs = [nlc1, nlc2, nlc3, nlc5]
 
-        self.opt_result = differential_evolution(
-            self.objective,
-            x0=self.bp_init_guess.reshape(1, -1),
-            bounds=bnds,
-            popsize=1,
-            recombination=0.5,
-            seed=1,
-            workers=1,
-            disp=True,
-            init="random",
-        )
+        # self.opt_result = differential_evolution(
+        #     self.objective,
+        #     x0=self.bp_init_guess.reshape(1, -1),
+        #     bounds=bnds,
+        #     popsize=1,
+        #     recombination=0.5,
+        #     seed=1,
+        #     workers=-1,
+        #     disp=True,
+        #     init="random",
+        #     constraints=nlc1,
+        # )
 
         # self.opt_result = shgo(
         #     self.objective,
@@ -554,10 +559,10 @@ class corgiOptimize:
                       H_b, dH_b, L1_b, L2_b, L3_b, L4_b,
                       H_b, dH_b, L1_b, L2_b, L3_b, L4_b]
         initial_pop = []
-        bp_init = [0.05, 0.01, 0.03, 0.01, 0.03, 0.01,
-                   0.05, 0.01, 0.03, 0.01, 0.03, 0.01,
-                   0.05, 0.01, 0.03, 0.01, 0.03, 0.01,
-                   0.05, 0.01, 0.03, 0.01, 0.03, 0.01]
+        bp_init = [0.05, 0.01, 0.05, 0.01, 0.03, 0.01,
+                   0.05, 0.01, 0.05, 0.01, 0.03, 0.01,
+                   0.05, 0.01, 0.05, 0.01, 0.03, 0.01,
+                   0.05, 0.01, 0.05, 0.01, 0.03, 0.01]
         # fmt:on
         for i in range(32):
             initial_pop.append(list(bp_init))
@@ -574,10 +579,10 @@ class corgiOptimize:
             keep_parents=-1,
             crossover_type="uniform",
             crossover_probability=0.5,
-            mutation_probability=0.2,
+            mutation_probability=0.4,
             mutation_type="random",
             mutation_percent_genes="default",
-            parallel_processing=["process", 16],
+            parallel_processing=["process", 12],
         )
         ga_instance.run()
         solution, solution_fitness, solution_idx = ga_instance.best_solution()
@@ -618,7 +623,7 @@ class corgiOptimize:
         ax[1][1].plot(D_cset[:, 0], D_cset[:, 1], "-o")
         plt.show()
 
-    def saveData(self, filepath="./csv_trajectory/20230827/", idx=1):
+    def saveData(self, filepath="./csv_trajectory/20230828/", idx=1):
         filename_check = False
         file_idx = idx
         sbrio_filename = str(datetime.date.today()) + "_traj_400_" + str(file_idx) + ".csv"
@@ -629,8 +634,8 @@ class corgiOptimize:
                 sbrio_filename = str(datetime.date.today()) + "_traj_400_" + str(file_idx) + ".csv"
                 param_filename = str(datetime.date.today()) + "_param_400_" + str(file_idx) + ".csv"
             else:
-                csv_filepath = "./csv_trajectory/20230827/" + sbrio_filename
-                param_filepath = "./csv_trajectory/20230827/" + param_filename
+                csv_filepath = filepath + sbrio_filename
+                param_filepath = filepath + param_filename
                 filename_check = True
 
         webot_filepath = "/home/guanlunlu/corgi_webots/controllers/supervisor/" + sbrio_filename
@@ -694,6 +699,82 @@ class corgiOptimize:
         CORGI.exportCSV(webot_filepath)
         print("webot exported", webot_filepath)
 
+    def exportBezierData(self, bp, filepath="./csv_trajectory/20230828/", idx=1):
+        filename_check = False
+        file_idx = idx
+        sbrio_filename = str(datetime.date.today()) + "_traj_400_" + str(file_idx) + ".csv"
+        param_filename = str(datetime.date.today()) + "_param_400_" + str(file_idx) + ".csv"
+        while not filename_check:
+            if os.path.isfile(filepath + sbrio_filename) or os.path.isfile(filepath + param_filename):
+                file_idx += 1
+                sbrio_filename = str(datetime.date.today()) + "_traj_400_" + str(file_idx) + ".csv"
+                param_filename = str(datetime.date.today()) + "_param_400_" + str(file_idx) + ".csv"
+            else:
+                csv_filepath = filepath + sbrio_filename
+                param_filepath = filepath + param_filename
+                filename_check = True
+
+        webot_filepath = "/home/guanlunlu/corgi_webots/controllers/supervisor/" + sbrio_filename
+
+        with open(param_filepath, "w") as f:
+            f.write("loop_freq," + str(self.freq) + "\n")
+            f.write("Step_length," + str(self.L) + "\n")
+            f.write("swing_time," + str(self.T_sw) + "\n")
+            f.write("C_s," + str(self.C_s) + "\n")
+            f.write("C_u," + str(self.C_u) + "\n")
+            f.write("px_init," + str(self.px_init) + "\n")
+            f.write("mx_init," + str(self.mx_init) + "\n")
+            f.write("cycle," + str(self.generate_cycle) + "\n")
+            f.write("total_t," + str(self.total_t) + "\n")
+            f.write("init_bezier_profile, " + repr(self.bp_init_guess) + "\n")
+            f.write("optimize_bezier_profile, " + repr(bp) + "\n")
+            f.write("\n")
+            f.write(repr(self.opt_result))
+            f.write("\n")
+
+        opt_bez = bp.reshape(4, -1)
+        # Export CSV for sbrio
+        tb_1 = lk.InverseKinematicsPoly(np.array([[self.px_init], [-self.H_st]]))
+        tb_2 = lk.InverseKinematicsPoly(np.array([[self.mx_init], [-self.H_st]]))
+        init_A_tb = tb_1
+        init_B_tb = tb_1
+        init_C_tb = tb_2
+        init_D_tb = tb_2
+        FSM = FiniteStateMachine(self.sbrio_freq)
+        CORGI = Corgi(self.sbrio_freq, FSM)
+        CORGI.step_length = self.L
+        CORGI.stance_height = self.H_st
+        CORGI.swing_time = self.T_sw
+        CORGI.weight_s = self.C_s
+        CORGI.weight_u = self.C_u
+        CORGI.total_cycle = self.generate_cycle
+        CORGI.total_time = self.total_t
+        CORGI.setInitPhase(init_A_tb, init_B_tb, init_C_tb, init_D_tb)
+        CORGI.move(swing_profile=opt_bez)
+        CORGI.exportCSV(csv_filepath)
+        print("sbrio exported to", csv_filepath)
+
+        # Export CSV for webot
+        tb_1 = lk.InverseKinematicsPoly(np.array([[self.px_init], [-self.H_st]]))
+        tb_2 = lk.InverseKinematicsPoly(np.array([[self.mx_init], [-self.H_st]]))
+        init_A_tb = tb_1
+        init_B_tb = tb_1
+        init_C_tb = tb_2
+        init_D_tb = tb_2
+        FSM = FiniteStateMachine(40)
+        CORGI = Corgi(40, FSM)
+        CORGI.step_length = self.L
+        CORGI.stance_height = self.H_st
+        CORGI.swing_time = self.T_sw
+        CORGI.weight_s = self.C_s
+        CORGI.weight_u = self.C_u
+        CORGI.total_cycle = self.generate_cycle
+        CORGI.total_time = self.total_t
+        CORGI.setInitPhase(init_A_tb, init_B_tb, init_C_tb, init_D_tb)
+        CORGI.move(swing_profile=opt_bez)
+        CORGI.exportCSV(webot_filepath)
+        print("webot exported", webot_filepath)
+
     def evoCallback(self):
         print("...")
 
@@ -701,8 +782,8 @@ class corgiOptimize:
 if __name__ == "__main__":
     opt = corgiOptimize()
     opt.getLiftoffState()
-    # opt.run_minimize()
-    opt.run_evolution()
+    opt.run_minimize()
+    # opt.run_evolution()
     # opt.run_GA()
     opt.saveData()
 
