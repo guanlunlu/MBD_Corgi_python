@@ -231,6 +231,8 @@ class Corgi:
 
         # Optimization
         self.cost = 0
+        self.cost_u = 0
+        self.cost_s = 0
         self.weight_s = 1
         self.weight_st = 0.1
         self.weight_u = 0.5
@@ -364,6 +366,8 @@ class Corgi:
 
             # Integrate Cost for optimization
             self.cost += (self.weight_s * -s + self.weight_u * (tau_RL.T @ tau_RL)[0, 0]) * self.dt
+            self.cost_u += (tau_RL.T @ tau_RL)[0, 0] * self.dt
+            self.cost_s += -s * self.dt
 
             self.performances.append([liftoff_leg, s])
             # self.performances.append([liftoff_leg, self.cost])

@@ -406,6 +406,31 @@ class corgiOptimize:
         print("iter", self.obj_itercnt, "cost", CORGI.cost)
         return CORGI.cost
 
+    def multiObjective(self, bezier_profiles):
+        bp = bezier_profiles.reshape(4, -1)
+        tb_1 = lk.InverseKinematicsPoly(np.array([[self.px_init], [-self.H_st]]))
+        tb_2 = lk.InverseKinematicsPoly(np.array([[self.mx_init], [-self.H_st]]))
+        init_A_tb = tb_1
+        init_B_tb = tb_1
+        init_C_tb = tb_2
+        init_D_tb = tb_2
+
+        FSM = FiniteStateMachine(self.freq)
+        CORGI = Corgi(self.freq, FSM)
+        CORGI.step_length = self.L
+        CORGI.stance_height = self.H_st
+        CORGI.swing_time = self.T_sw
+        CORGI.weight_s = self.C_s
+        CORGI.weight_u = self.C_u
+        CORGI.total_cycle = 4
+        CORGI.total_time = self.total_t
+        CORGI.setInitPhase(init_A_tb, init_B_tb, init_C_tb, init_D_tb)
+        CORGI.move(swing_profile=bp)
+        self.obj_itercnt += 1
+
+        print("iter", self.obj_itercnt, "cost", CORGI.cost)
+        return [CORGI.cost_s, CORGI.cost_u]
+
     def run_minimize(self):
         # fmt:off
         bnds = (self.H_b, self.dH_b, self.L1_b, self.L2_b, self.L3_b, self.L4_b,
