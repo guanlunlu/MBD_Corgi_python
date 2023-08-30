@@ -6,6 +6,7 @@ import matplotlib.pyplot as plt
 import matplotlib.animation as animation
 from mpl_toolkits.mplot3d import Axes3D
 import csv
+from scipy import signal
 
 import linkleg_transform as lt
 import LegKinematics as lk
@@ -184,7 +185,7 @@ class Corgi:
         self.swing_time = 0.6
         self.stance_height = 0.2
         self.average_vel = 0
-        self.total_time = 10
+        self.total_time = 100
         self.total_cycle = 36
 
         # Robot initial state (in Theta-Beta Representation)
@@ -298,6 +299,7 @@ class Corgi:
         while self.loop_cnt < self.total_time * self.frequency:
             self.cpg.update(self.mode, self.swing_time)
             self.Position += np.array([[self.average_vel * self.dt], [0], [0]])
+            # print(self.cpg.contact)
 
             for i in range(4):
                 if self.cpg.contact[i] == False:
@@ -716,7 +718,7 @@ class Corgi:
         frame_count = round(self.Trajectory[-1][0] * self.animate_fps)
         print("Frame interval count:", frame_interval, frame_count)
 
-        fig = plt.figure(figsize=(16, 18), dpi=100)
+        fig = plt.figure(figsize=(16, 18), dpi=50)
 
         # self.ax = Axes3D(fig)
         # fig.add_axes(self.ax)
@@ -821,24 +823,32 @@ class Corgi:
 if __name__ == "__main__":
     print("CPG Started")
 
-    loop_freq = 100  # Hz
+    loop_freq = 40  # Hz
     FSM = FiniteStateMachine(loop_freq)
     CORGI = Corgi(loop_freq, FSM)
+    CORGI.swing_time = 3.97
+    # CORGI.swing_time = 1.9
+    CORGI.stance_height = 0.2
+    CORGI.step_length = 0.18
     LDM = sm.SimplifiedModel(data_analysis=False)
 
     # fmt:off
-    # bp = np.array([0.33, 0.02, 0.25, -0.1, 0.1, 0.04,
-    #                0.33, 0.02, 0.25, -0.1, 0.1, 0.04,
-    #                0.33, 0.02, 0.25, -0.1, 0.1, 0.04,
-    #                0.33, 0.02, 0.25, -0.1, 0.1, 0.04])
-    
     bp = np.array([ 0.04002311,  0.00303396,  0.01000181, -0.01986243,  0.01305118,
-       -0.03105092,  0.04006933,  0.00124093,  0.01742723, -0.04600008,
-        0.01166539, -0.02441404,  0.04008184,  0.00328895,  0.01020455,
-       -0.01692465,  0.01747139, -0.04729206,  0.04011618,  0.00043849,
-        0.01602226, -0.04007484,  0.01082458, -0.02170281])
-    # fmt:on
+                    -0.03105092,  0.04006933,  0.00124093,  0.01742723, -0.04600008,
+                    0.01166539, -0.02441404,  0.04008184,  0.00328895,  0.01020455,
+                    -0.01692465,  0.01747139, -0.04729206,  0.04011618,  0.00043849,
+                    0.01602226, -0.04007484,  0.01082458, -0.02170281])
+    
+    bp = np.array([0.27, 0.01, 0.17, -0.10, 0.15, -0.10,
+                   0.27, 0.01, 0.17, -0.10, 0.15, -0.10,
+                   0.27, 0.01, 0.17, -0.10, 0.17, -0.10,
+                   0.27, 0.01, 0.17, -0.10, 0.17, -0.10])
+    bp = np.array([0.27, 0.01, 0.11, -0.05, 0.11, -0.05,
+                   0.27, 0.01, 0.11, -0.05, 0.11, -0.05,
+                   0.27, 0.01, 0.11, -0.05, 0.11, -0.05,
+                   0.27, 0.01, 0.11, -0.05, 0.11, -0.05])
 
+    # fmt:on
     bp = np.array(bp).reshape(4, -1)
 
     tb = lk.InverseKinematicsPoly(np.array([[0], [-0.2]]))
@@ -849,40 +859,59 @@ if __name__ == "__main__":
     init_B_tb = tb_1
     init_C_tb = tb_2
     init_D_tb = tb_2
+    # CORGI.setInitPhase(init_A_tb, init_B_tb, init_C_tb, init_D_tb)
 
-    CORGI.setInitPhase(init_A_tb, init_B_tb, init_C_tb, init_D_tb)
+    tb_a = lk.InverseKinematicsPoly(np.array([[0.065], [-0.2]]))
+    tb_b = lk.InverseKinematicsPoly(np.array([[0.05], [-0.2]]))
+    tb_c = lk.InverseKinematicsPoly(np.array([[-0.072], [-0.2]]))
+    tb_d = lk.InverseKinematicsPoly(np.array([[-0.02], [-0.2]]))
+    CORGI.setInitPhase(tb_a, tb_b, tb_c, tb_d)
+
     # CORGI.standUp(0.05)
     CORGI.move(swing_profile=bp)
-    CORGI.visualize()
+    # CORGI.visualize()
     print("total cost:", CORGI.cost)
     print("s_cost", CORGI.cost_s)
     print("u_cost", CORGI.cost_u)
     print("---")
     p1 = np.array(CORGI.performances)
-    # CORGI.exportCSV("/home/guanlunlu/corgi_webots/controllers/supervisor/output.csv")
+    # cur_leg = 0
+    # for i in CORGI.performances:
+    #     leg_idx, p_idx = i
+    #     if leg_idx == 0
 
-    bez_prof_init = np.array(
+    CORGI.exportCSV("/home/guanlunlu/corgi_webots/controllers/supervisor/output1.csv")
+    # CORGI.exportCSV("/home/guanlunlu/Desktop/20230830_output4.csv")
+
+    bp = np.array(
         [
-            [0.04, 0.01, 0.2, 0.05, 0.2, 0.05],
-            [0.04, 0.01, 0.2, 0.05, 0.2, 0.05],
-            [0.04, 0.01, 0.2, 0.05, 0.2, 0.05],
-            [0.04, 0.01, 0.2, 0.05, 0.2, 0.05],
+            [0.04, 0.01, 0.15, -0.05, 0.15, -0.05],
+            [0.04, 0.01, 0.15, -0.05, 0.15, -0.05],
+            [0.04, 0.01, 0.15, -0.05, 0.15, -0.05],
+            [0.04, 0.01, 0.15, -0.05, 0.15, -0.05],
         ]
     )
-
     FSM = FiniteStateMachine(loop_freq)
     CORGI = Corgi(loop_freq, FSM)
+    CORGI.step_length = 0.2
+    CORGI.swing_time = 0.6
     CORGI.setInitPhase(init_A_tb, init_B_tb, init_C_tb, init_D_tb)
-    CORGI.move(swing_profile=bez_prof_init)
+    CORGI.move(swing_profile=bp)
     # CORGI.visualize()
     print("total cost:", CORGI.cost)
     print("s_cost", CORGI.cost_s)
     print("u_cost", CORGI.cost_u)
+
     p2 = np.array(CORGI.performances)
-    plt.plot(p1[:, 1], label="optimized")
-    plt.plot(p2[:, 1], linestyle="--", label="initial guess")
-    plt.legend()
-    plt.grid()
-    plt.show()
+    p1[:, 1] = signal.medfilt(p1[:, 1], 5)
+    p2[:, 1] = signal.medfilt(p2[:, 1], 5)
     print(np.sum(p1[:, 1]))
     print(np.sum(p2[:, 1]))
+
+    plt.plot(p1[:, 1], label="optimized")
+    plt.plot(p2[:, 1], label="initial guess")
+    plt.legend()
+    plt.grid()
+    # plt.show()
+    # CORGI.exportCSV("/home/guanlunlu/corgi_webots/controllers/supervisor/output2.csv")
+    # CORGI.exportCSV("/home/guanlunlu/Desktop/20230830_output2.csv")

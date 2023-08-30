@@ -382,10 +382,10 @@ class corgiOptimize:
 
     def objective(self, bezier_profiles):
         bp = bezier_profiles.reshape(4, -1)
-        print(bp[0])
-        print(bp[1])
-        print(bp[2])
-        print(bp[3])
+        # print(bp[0])
+        # print(bp[1])
+        # print(bp[2])
+        # print(bp[3])
 
         tb_1 = lk.InverseKinematicsPoly(np.array([[self.px_init], [-self.H_st]]))
         tb_2 = lk.InverseKinematicsPoly(np.array([[self.mx_init], [-self.H_st]]))
@@ -793,36 +793,8 @@ if __name__ == "__main__":
             [0.04, 0.01, 0.2, 0.05, 0.2, 0.05],
         ]
     )
-    bp = np.array(
-        [
-            0.04002311,
-            0.00303396,
-            0.01000181,
-            -0.01986243,
-            0.01305118,
-            -0.03105092,
-            0.04006933,
-            0.00124093,
-            0.01742723,
-            -0.04600008,
-            0.01166539,
-            -0.02441404,
-            0.04008184,
-            0.00328895,
-            0.01020455,
-            -0.01692465,
-            0.01747139,
-            -0.04729206,
-            0.04011618,
-            0.00043849,
-            0.01602226,
-            -0.04007484,
-            0.01082458,
-            -0.02170281,
-        ]
-    )
 
-    opt.plotResult(bp)
+    # opt.plotResult(bp)
 
     # opt.innerWsPFConstraint(opt.bp_init_guess)
     # opt.outerWsPFConstraint(opt.bp_init_guess)
