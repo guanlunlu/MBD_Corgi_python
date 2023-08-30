@@ -5,12 +5,14 @@ rm_coeff = [-0.0132, 0.0500, 0.0030, 0.0110, -0.0035]
 Icom_coeff = [0.0041, 0.0043, -0.0013, -0.0001, 0.0001]
 
 
+# def getThetaBeta(phiRL):
+#     # column vector [phiR; phiL]
+# return 1 / 2 * np.mat([[1, -1], [1, 1]]) * np.mat(phiRL) + np.mat([[1], [0]]) * np.deg2rad(17)
+
+
 def getThetaBeta(phiRL):
-    # column vector [phiR; phiL]
-    return 1 / 2 * np.mat([[1, -1], [1, 1]]) * np.mat(phiRL) + np.mat([[1], [0]]) * np.deg2rad(17)
-
-
-def phiRL_2_thetabeta(R, L):
+    R = phiRL[0, 0]
+    L = phiRL[1, 0]
     r = np.exp(1j * (R + np.deg2rad(17.0)))
     l = np.exp(1j * (L - np.deg2rad(17.0)))
     theta = np.angle(r / l)
@@ -19,13 +21,35 @@ def phiRL_2_thetabeta(R, L):
             theta[i] += 2 * np.pi
     theta = theta * 0.5
     beta = np.angle(l) + theta
-    return theta, beta
+    # if beta < 0:
+    #     beta += 2 * np.pi
+    # elif beta > 2 * np.pi:
+    #     beta -= 2 * np.pi
+    return np.array([[theta], [beta]])
 
 
 def getPhiRL(tb):
     if tb[0, 0] == "error":
         print(tb)
-    return np.array([[1, 1], [-1, 1]]) @ tb - np.array([[1], [-1]]) * np.deg2rad(17)
+    theta = tb[0, 0]
+    beta = tb[1, 0]
+
+    if beta < -np.pi:
+        beta += 2 * np.pi
+    elif beta > np.pi:
+        beta -= 2 * np.pi
+
+    phiRL = np.array([[1, 1], [-1, 1]]) @ np.array([[theta], [beta]]) - np.array([[1], [-1]]) * np.deg2rad(17)
+
+    # if phiRL[0, 0] < 0:
+    #     phiRL[0, 0] += 2 * np.pi
+    # elif phiRL[0, 0] > 2 * np.pi:
+    #     phiRL[0, 0] -= 2 * np.pi
+    # if phiRL[1, 0] < 0:
+    #     phiRL[1, 0] += 2 * np.pi
+    # elif phiRL[1, 0] > 2 * np.pi:
+    #     phiRL[1, 0] -= 2 * np.pi
+    return phiRL
 
 
 def getFrmTb(T_RL, theta):

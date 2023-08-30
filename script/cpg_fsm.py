@@ -716,7 +716,7 @@ class Corgi:
         frame_count = round(self.Trajectory[-1][0] * self.animate_fps)
         print("Frame interval count:", frame_interval, frame_count)
 
-        fig = plt.figure(figsize=(16, 18), dpi=50)
+        fig = plt.figure(figsize=(16, 18), dpi=100)
 
         # self.ax = Axes3D(fig)
         # fig.add_axes(self.ax)
@@ -726,7 +726,7 @@ class Corgi:
         self.ax1.set_zlabel("Z")
         self.ax1.axes.set_xlim3d([-0.2, 1.2])
         self.ax1.axes.set_ylim3d([-0.5, 0.5])
-        self.ax1.axes.set_zlim3d([0, 0.8])
+        self.ax1.axes.set_zlim3d([0, 0.5])
         sf_x = np.arange(-1, 5, 0.25)
         sf_y = np.arange(-1, 1, 0.25)
         X, Y = np.meshgrid(sf_x, sf_y)
@@ -759,36 +759,57 @@ class Corgi:
         plt.show()
 
     def exportCSV(self, filepath="./csv_trajectory/output.csv", mode="sbrio"):
+        print("data export")
+        A_phiR_list = []
+        A_phiL_list = []
+        B_phiR_list = []
+        B_phiL_list = []
+        C_phiR_list = []
+        C_phiL_list = []
+        D_phiR_list = []
+        D_phiL_list = []
+        for i in self.Trajectory:
+            if mode == "sbrio":
+                A_phiRL = lt.getPhiRL(np.array([[i[2][0]], [-i[2][1]]]))
+                D_phiRL = lt.getPhiRL(np.array([[i[8][0]], [-i[8][1]]]))
+            else:
+                A_phiRL = lt.getPhiRL(np.array([[i[2][0]], [i[2][1]]]))
+                D_phiRL = lt.getPhiRL(np.array([[i[8][0]], [i[8][1]]]))
+            A_phiR_list.append(A_phiRL[0, 0])
+            A_phiL_list.append(A_phiRL[1, 0])
+            B_phiR_list.append(i[5][0])
+            B_phiL_list.append(i[5][1])
+            C_phiR_list.append(i[7][0])
+            C_phiL_list.append(i[7][1])
+            D_phiR_list.append(D_phiRL[0, 0])
+            D_phiL_list.append(D_phiRL[1, 0])
+
+        A_phiR_list = np.unwrap(np.array(A_phiR_list), period=2 * np.pi)
+        A_phiL_list = np.unwrap(np.array(A_phiL_list), period=2 * np.pi)
+        B_phiR_list = np.unwrap(np.array(B_phiR_list), period=2 * np.pi)
+        B_phiL_list = np.unwrap(np.array(B_phiL_list), period=2 * np.pi)
+        C_phiR_list = np.unwrap(np.array(C_phiR_list), period=2 * np.pi)
+        C_phiL_list = np.unwrap(np.array(C_phiL_list), period=2 * np.pi)
+        D_phiR_list = np.unwrap(np.array(D_phiR_list), period=2 * np.pi)
+        D_phiL_list = np.unwrap(np.array(D_phiL_list), period=2 * np.pi)
+
         with open(filepath, "w", encoding="UTF8", newline="") as f:
             writer = csv.writer(f)
-            for i in self.Trajectory:
-                if mode == "sbrio":
-                    A_phiRL = lt.getPhiRL(np.array([[i[2][0]], [-i[2][1]]]))
-                    D_phiRL = lt.getPhiRL(np.array([[i[8][0]], [-i[8][1]]]))
-                else:
-                    A_phiRL = lt.getPhiRL(np.array([[i[2][0]], [i[2][1]]]))
-                    D_phiRL = lt.getPhiRL(np.array([[i[8][0]], [i[8][1]]]))
-                A_phiR = A_phiRL[0, 0]
-                A_phiL = A_phiRL[1, 0]
-                B_phiR = i[5][0]
-                B_phiL = i[5][1]
-                C_phiR = i[7][0]
-                C_phiL = i[7][1]
-                D_phiR = D_phiRL[0, 0]
-                D_phiL = D_phiRL[1, 0]
-                A_contact = i[10][0]
-                B_contact = i[10][1]
-                C_contact = i[10][2]
-                D_contact = i[10][3]
+            for i in range(len(self.Trajectory)):
+                A_contact = self.Trajectory[i][10][0]
+                B_contact = self.Trajectory[i][10][1]
+                C_contact = self.Trajectory[i][10][2]
+                D_contact = self.Trajectory[i][10][3]
+                # print("B_TB, B_RL", B_contact, self.Trajectory[i][4], B_phiR_list[i], B_phiL_list[i])
                 row = [
-                    A_phiR,
-                    A_phiL,
-                    B_phiR,
-                    B_phiL,
-                    C_phiR,
-                    C_phiL,
-                    D_phiR,
-                    D_phiL,
+                    A_phiR_list[i],
+                    A_phiL_list[i],
+                    B_phiR_list[i],
+                    B_phiL_list[i],
+                    C_phiR_list[i],
+                    C_phiL_list[i],
+                    D_phiR_list[i],
+                    D_phiL_list[i],
                     A_contact,
                     B_contact,
                     C_contact,
@@ -800,69 +821,22 @@ class Corgi:
 if __name__ == "__main__":
     print("CPG Started")
 
-    loop_freq = 400  # Hz
+    loop_freq = 100  # Hz
     FSM = FiniteStateMachine(loop_freq)
     CORGI = Corgi(loop_freq, FSM)
     LDM = sm.SimplifiedModel(data_analysis=False)
 
-    bp = np.array(
-        [
-            0.08463458910490698,
-            0.0196838244392898,
-            0.01850744944689882,
-            0.024529399966100568,
-            0.018630222787415912,
-            0.06339289353026645,
-            0.051620993332801485,
-            0.01843050224710556,
-            0.014289622144240018,
-            0.0809231695450141,
-            0.014700050301560783,
-            0.05531859824155916,
-            0.08295214364925285,
-            6.256941317328349e-05,
-            0.012163903292402523,
-            0.029565047540828254,
-            0.04646442058272693,
-            0.05893750318143512,
-            0.050408196289893514,
-            0.0009569116678044009,
-            0.019252342255391963,
-            0.07011486791304086,
-            0.02150071401217432,
-            0.10770712740120203,
-        ]
-    )
     # fmt:off
-    bp = [ 0.02,  0.01,  0.01,  0.01,  0.03, -0.1,   0.01,  0.01,  0.03,  0.01,  0.03,  0.01,
-           0.02,  0.01,  0.01,  0.01,  0.03, -0.1,   0.02,  0.01,  0.03,  0.01,  0.03,  0.01]
-    bp = [0.02,  0.01,  0.03, -0.1,   0.03, -0.1,   0.02,  0.01,  0.03,  0.01,  0.01,  0.01,
-          0.02,  0.01,  0.03,  0.01,  0.03,  0.01,  0.02,  0.01,  0.03,  0.01,  0.03,  0.01]
-    bp = [ 0.04,  0.02,  0.01,  0.1,   0.01,  0.1,   0.04,  0.,    0.01, -0.1,   0.01,  0.1,
-           0.07,  0.02,  0.01, -0.1,   0.01, -0.1,   0.04,  0.,    0.01, -0.1,   0.01,  0.1 ]
-    bp = [0.04,  0.,    0.01, -0.1,   0.01,  0.1,   0.07,  0.02,  0.01, -0.1,   0.01, -0.1,
-          0.04,  0.,    0.01,  0.1,   0.01, -0.1,   0.04,  0.,    0.01, -0.1,   0.01, -0.1]
+    # bp = np.array([0.33, 0.02, 0.25, -0.1, 0.1, 0.04,
+    #                0.33, 0.02, 0.25, -0.1, 0.1, 0.04,
+    #                0.33, 0.02, 0.25, -0.1, 0.1, 0.04,
+    #                0.33, 0.02, 0.25, -0.1, 0.1, 0.04])
     
-    bp = [ 0.04,  0.01,  0.01,  0.01,  0.03,  0.01,  0.07,  0.01,  0.03,  0.01,  0.01,  0.01,
-           0.04,  0.02,  0.01,  0.01,  0.01,  0.01,  0.05,  0.,    0.03, -0.5,   0.01,  0.01]
-    bp = [0.02398062,  0.00223995,  0.01013443, -0.06193844,  0.11007066, -0.08215284,
-          0.01422421,  0.00432968,  0.03392606, -0.05297817,  0.09592383, -0.09877396,
-          0.01128508,  0.0037216,   0.05949995, -0.02038802,  0.01460127, -0.03795509,
-          0.01047656,  0.00177167,  0.03024167, -0.09970087,  0.10501525, -0.09100406]
-    bp = [ 0.04398062,  0.00223995,  0.01013443, -0.06193844,  0.11007066, -0.08215284,
-           0.03422421,  0.00432968,  0.03392606, -0.05297817,  0.09592383, -0.09877396,
-           0.03128508,  0.0037216,   0.05949995, -0.02038802,  0.01460127, -0.03795509,
-           0.03047656,  0.00177167,  0.03024167, -0.09970087,  0.10501525, -0.09100406]
-    # bp = [0.03322673,  0.00353731,  0.01043057, -0.05509119,  0.0283695,  -0.08306718,
-    #      0.03284769,  0.00032976,  0.01220831, -0.05779484,  0.03149132, -0.09953882,
-    #      0.03128519,  0.00496207,  0.01515844, -0.03229189,  0.01305506, -0.06747824,
-    #      0.03002481,  0.00285618,  0.01858495, -0.09749069,  0.02983422, -0.09122142]
-    # bp = [ 3.48146217e-02,  6.25100982e-04,  1.00186020e-02, -6.26141737e-02,
-    #         2.70284839e-02, -8.30164858e-02,  3.28251419e-02,  2.16078214e-03,
-    #         1.32559516e-02, -6.64597082e-02,  2.07034866e-02, -9.98558341e-02,
-    #         3.18828420e-02,  2.68746334e-03,  1.46898717e-02, -2.32937440e-02,
-    #         1.94550669e-02, -7.10714200e-02,  3.17395885e-02,  1.15445535e-03,
-    #         3.74908875e-02, -9.97814514e-02,  3.31877639e-02, -9.88796143e-02]
+    bp = np.array([ 0.04002311,  0.00303396,  0.01000181, -0.01986243,  0.01305118,
+       -0.03105092,  0.04006933,  0.00124093,  0.01742723, -0.04600008,
+        0.01166539, -0.02441404,  0.04008184,  0.00328895,  0.01020455,
+       -0.01692465,  0.01747139, -0.04729206,  0.04011618,  0.00043849,
+        0.01602226, -0.04007484,  0.01082458, -0.02170281])
     # fmt:on
 
     bp = np.array(bp).reshape(4, -1)
@@ -880,17 +854,19 @@ if __name__ == "__main__":
     # CORGI.standUp(0.05)
     CORGI.move(swing_profile=bp)
     CORGI.visualize()
-    print(CORGI.cost)
-    CORGI.exportCSV("/home/guanlunlu/corgi_webots/controllers/supervisor/output.csv")
-    # CORGI.exportCSV("/home/guanlunlu/20230828.csv")
-    """ CORGI.exportCSV("/home/guanlunlu/corgi_webots/controllers/supervisor/output.csv")
+    print("total cost:", CORGI.cost)
+    print("s_cost", CORGI.cost_s)
+    print("u_cost", CORGI.cost_u)
+    print("---")
+    p1 = np.array(CORGI.performances)
+    # CORGI.exportCSV("/home/guanlunlu/corgi_webots/controllers/supervisor/output.csv")
 
     bez_prof_init = np.array(
         [
-            [0.06, 0.01, 0.15, 0.05, 0.08, 0.06],
-            [0.06, 0.01, 0.15, 0.05, 0.08, 0.06],
-            [0.06, 0.01, 0.08, 0.05, 0.02, 0.1],
-            [0.06, 0.01, 0.08, 0.05, 0.02, 0.1],
+            [0.04, 0.01, 0.2, 0.05, 0.2, 0.05],
+            [0.04, 0.01, 0.2, 0.05, 0.2, 0.05],
+            [0.04, 0.01, 0.2, 0.05, 0.2, 0.05],
+            [0.04, 0.01, 0.2, 0.05, 0.2, 0.05],
         ]
     )
 
@@ -898,6 +874,15 @@ if __name__ == "__main__":
     CORGI = Corgi(loop_freq, FSM)
     CORGI.setInitPhase(init_A_tb, init_B_tb, init_C_tb, init_D_tb)
     CORGI.move(swing_profile=bez_prof_init)
-    # CORGI.move()
-    CORGI.visualize()
-    print(CORGI.cost) """
+    # CORGI.visualize()
+    print("total cost:", CORGI.cost)
+    print("s_cost", CORGI.cost_s)
+    print("u_cost", CORGI.cost_u)
+    p2 = np.array(CORGI.performances)
+    plt.plot(p1[:, 1], label="optimized")
+    plt.plot(p2[:, 1], linestyle="--", label="initial guess")
+    plt.legend()
+    plt.grid()
+    plt.show()
+    print(np.sum(p1[:, 1]))
+    print(np.sum(p2[:, 1]))

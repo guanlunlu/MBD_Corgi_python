@@ -5,7 +5,6 @@ from scipy.optimize import NonlinearConstraint
 from scipy.optimize import minimize
 from scipy.optimize import shgo
 import datetime
-import pickle
 import os
 import pygad
 
@@ -590,7 +589,7 @@ class corgiOptimize:
         print("Fitness value of the best solution = {solution_fitness}".format(solution_fitness=solution_fitness))
 
     def plotResult(self, result):
-        opt_bez = result.x
+        opt_bez = result
         opt_bez = opt_bez.reshape(4, -1)
         print("---")
         print("Optimized Bezier Profile:")
@@ -781,14 +780,52 @@ class corgiOptimize:
 
 if __name__ == "__main__":
     opt = corgiOptimize()
-    opt.getLiftoffState()
-    opt.run_minimize()
-    # opt.run_evolution()
-    # opt.run_GA()
-    opt.saveData()
+    # opt.getLiftoffState()
+    # opt.run_minimize()
+    # # opt.run_evolution()
+    # # opt.run_GA()
+    # opt.saveData()
+    bez_prof_init = np.array(
+        [
+            [0.04, 0.01, 0.2, 0.05, 0.2, 0.05],
+            [0.04, 0.01, 0.2, 0.05, 0.2, 0.05],
+            [0.04, 0.01, 0.2, 0.05, 0.2, 0.05],
+            [0.04, 0.01, 0.2, 0.05, 0.2, 0.05],
+        ]
+    )
+    bp = np.array(
+        [
+            0.04002311,
+            0.00303396,
+            0.01000181,
+            -0.01986243,
+            0.01305118,
+            -0.03105092,
+            0.04006933,
+            0.00124093,
+            0.01742723,
+            -0.04600008,
+            0.01166539,
+            -0.02441404,
+            0.04008184,
+            0.00328895,
+            0.01020455,
+            -0.01692465,
+            0.01747139,
+            -0.04729206,
+            0.04011618,
+            0.00043849,
+            0.01602226,
+            -0.04007484,
+            0.01082458,
+            -0.02170281,
+        ]
+    )
+
+    opt.plotResult(bp)
 
     # opt.innerWsPFConstraint(opt.bp_init_guess)
     # opt.outerWsPFConstraint(opt.bp_init_guess)
 
     print("---")
-    print(opt.opt_result)
+    # print(opt.opt_result)
